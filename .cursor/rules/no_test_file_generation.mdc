@@ -1,0 +1,7 @@
+---
+alwaysApply: true
+---
+Never generate or propose test files, mocks, or standalone validation scripts unless explicitly requested. 
+When evaluating behavior or verifying correctness, execute or simulate the program logic directly within the existing context. 
+Assume direct execution is preferred over testing scaffolds. 
+Avoid redundant code duplication, report generation, or wrapper creation — focus on running and validating the real workflow itself.
