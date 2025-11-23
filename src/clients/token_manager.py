@@ -1,14 +1,16 @@
 import asyncio
-from http.client import HTTPException
-import time
-import random
-from typing import Optional
-from threading import Lock
-from .https_client import HTTPSClient
-import logging
-from datetime import datetime, timedelta
 import json
+import logging
 import os
+import random
+import time
+from datetime import datetime, timedelta
+from threading import Lock
+from typing import Optional
+
+from fastapi import HTTPException
+
+from .https_client import HTTPSClient
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -31,7 +33,7 @@ class TokenManager:
             self.token: Optional[str] = None
             self.token_expiration: Optional[float] = None  # Use float para timestamp
             self.state = "Authenticated" if self.token else "Unauthenticated"
-            self.token_lock = asyncio.Lock()  # For async token access
+            self.token_lock: Optional[asyncio.Lock] = None
             self.use_mock = use_mock
             self._url = url
             self._state_file = "token_manager_state.json"  # Nome do arquivo de estado
@@ -110,21 +112,14 @@ class TokenManager:
 
     async def _perform_authentication(self):
         if self.use_mock:
-            # Simulate mock authentication with 50% chance of success
-            success = random.choice([True, True])
-            if success:
-                # Simulate setting a random token
-                self.token = f"mock_token_{random.randint(1000, 9999)}"
-                # Set the token expiration time randomly between 1 and 2 minutes
-                random_expiration = time.time() + random.randint(60, 120)  # timestamp
-                self.token_expiration = random_expiration
-                logger.debug(
-                    f"Mock token generated, expires at {datetime.fromtimestamp(random_expiration)}."
-                )
-                return True
-            else:
-                logger.debug("Mock authentication failed.")
-                return False
+            # Always succeed in dev/mock mode to unblock local testing.
+            self.token = f"mock_token_{random.randint(1000, 9999)}"
+            random_expiration = time.time() + random.randint(60, 120)  # timestamp
+            self.token_expiration = random_expiration
+            logger.debug(
+                f"Mock token generated, expires at {datetime.fromtimestamp(random_expiration)}."
+            )
+            return True
         else:
             # Real authentication logic using HTTPSClient
             client = HTTPSClient()
@@ -200,6 +195,8 @@ class TokenManager:
     async def get_token(self):
         # Lock access to the token to ensure a single authentication
         logger.info(f"State: {self.state}")
+        if self.token_lock is None:
+            self.token_lock = asyncio.Lock()
         async with self.token_lock:
             logger.debug("Entering get_token - Current state: %s", self.state)
 
