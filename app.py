@@ -1,26 +1,39 @@
-import configparser
-from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel
-from starlette.middleware.cors import CORSMiddleware
-from src.clients.token_manager import TokenManager
-from src.middleware.timing_middleware import TimingMiddleware
-from src.models.request_models import MessageRequest
-from src.clients.restaurant_client import RestaurantClient
-from src.clients.mock_restaurant_client import RestaurantMockClient
-from src.order_processor.order_chain import OrderProcessorChain
 import logging
 import os
+from typing import Optional
+
+import httpx
+from fastapi import Depends, FastAPI, HTTPException, Query
+from pydantic import BaseModel
+from starlette.middleware.cors import CORSMiddleware
+
+from src.api.dependencies import (
+    get_order_processor_chain,
+    get_restaurant_client,
+    get_token_manager,
+    handle_request_exception,
+)
+from src.api.frontend_monitor import frontend_router
+from src.clients.restaurant_client import RestaurantClient
+from src.clients.token_manager import TokenManager
+from src.middleware.timing_middleware import TimingMiddleware
+from src.order_processor.order_chain import OrderProcessorChain
+from src.services.table_cache import get_table_detail_response, get_tables_response
+from src.utils.settings import get_settings
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+settings = get_settings()
+frontend_origins = list(settings.frontend_allowed_origins or ("http://localhost:3000",))
 
 app = FastAPI()
 
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Use specific domains in production
+    allow_origins=frontend_origins,
     allow_credentials=True,
     allow_methods=["*"],  # Allow all HTTP methods
     allow_headers=["*"],  # Allow all headers
@@ -28,53 +41,12 @@ app.add_middleware(
 
 app.add_middleware(TimingMiddleware)
 
-def read_config_file(filename):
-    config = configparser.ConfigParser()
-    config.read(filename)
-    return config
-
-
-def get_token_manager():
-    config = read_config_file("config.ini")["Settings"]
-    APP_MODE = config.get("app_mode", "prod")  # Default to 'prod' if not specified
-    use_mock = APP_MODE.lower() == "dev"
-    coti_api_url = config.get("coti_cloud_services_url", "http://localhost:8005")
-    token_manager = TokenManager(use_mock=use_mock, url=coti_api_url)
-    return token_manager
-
-
 class BaseResponse(BaseModel):
     response_time: float
 
 
 class ValidateAuthResponse(BaseResponse):
     is_authenticated: bool
-
-
-# Dependency that will create and return the RestaurantClient or RestaurantMockClient instance
-def get_restaurant_client(token_manager: TokenManager = Depends(get_token_manager)):
-    if token_manager.use_mock:
-        logger.info("Running in development mode. Using RestaurantMockClient.")
-        return RestaurantMockClient(token_manager=token_manager)
-    else:
-        logger.info("Running in production mode. Using RestaurantClient.")
-        return RestaurantClient(token_manager=token_manager)
-
-
-# Dependency that will create and return the OrderProcessorChain instance
-def get_order_processor_chain() -> OrderProcessorChain:
-    return OrderProcessorChain()
-
-
-def handle_request_exception(e: Exception):
-    if hasattr(e, "status_code") and e.status_code == 401:
-        logger.error(f"Authentication error: {e}")
-        raise HTTPException(
-            status_code=401, detail="Smart Connect Authentication Error"
-        )
-    else:
-        logger.error(f"Unhandled exception: {e}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred.")
 
 
 @app.get("/auth/validate", response_model=ValidateAuthResponse)
@@ -105,8 +77,11 @@ async def create_board_message(
         if not isinstance(table_id, int):
             raise HTTPException(status_code=400, detail="table_id must be an integer.")
 
-        # Fetch the table order from the RestaurantClient
-        table_order = await client.fetch_table_content(table_id)
+        # Fetch the table order from the RestaurantClient (cached snapshot)
+        payload = await get_table_detail_response(
+            client, table_id, include_wire_trace=True
+        )
+        table_order = payload["table"]
 
         if not table_order["content"]:
             raise HTTPException(status_code=404, detail="Table content not found.")
@@ -142,6 +117,17 @@ async def create_board_message(
         order["details"]["orders"] = processed_table_items
         return order
 
+    except httpx.HTTPStatusError as groq_error:
+        logger.error("Groq API error for table %s: %s", table_id, groq_error)
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to enhance WhatsApp message via Groq at the moment.",
+        ) from groq_error
+    except ValueError as config_error:
+        logger.error("Groq configuration error: %s", config_error)
+        raise HTTPException(
+            status_code=500, detail="Groq configuration error. Please check config.ini."
+        ) from config_error
     except Exception as e:
         handle_request_exception(e)
 
@@ -171,20 +157,29 @@ async def get_table(
     Get details of a specific table by ID (if necessary).
     """
     try:
-        table_data = await client.fetch_table_content(table_id)
-        return table_data
+        payload = await get_table_detail_response(
+            client, table_id, include_wire_trace=True
+        )
+        return payload["table"]
     except Exception as e:
         handle_request_exception(e)
 
 
 @app.get("/tables")
-async def list_tables(client: RestaurantClient = Depends(get_restaurant_client)):
+async def list_tables(
+    page: Optional[int] = Query(default=None, ge=1),
+    page_size: Optional[int] = Query(default=None, ge=1),
+    client: RestaurantClient = Depends(get_restaurant_client),
+):
     """
-    Retrieve a list of all tables.
+    Retrieve a list of tables with optional pagination metadata.
     """
     try:
-        tables = await client.fetch_tables()
-        return tables
+        return await get_tables_response(
+            client, page=page, page_size=page_size, include_wire_trace=False
+        )
+    except HTTPException as exc:
+        raise exc
     except Exception as e:
         handle_request_exception(e)
 
@@ -199,7 +194,6 @@ async def set_payment_status(
     Endpoint to set the payment status for a specific table.
 
     Args:
-        request (MessageRequest): The request body containing the table_id.
         client (RestaurantClient): The RestaurantClient instance.
 
     Returns:
@@ -231,7 +225,6 @@ async def close_table_endpoint(
     Endpoint to close a specific table after payment.
 
     Args:
-        request (MessageRequest): The request body containing the table_id.
         client (RestaurantClient): The RestaurantClient instance.
 
     Returns:
@@ -251,7 +244,16 @@ async def close_table_endpoint(
         handle_request_exception(e)
 
 
-if __name__ == "__main__":
-    import uvicorn
+app.include_router(frontend_router)
 
+
+if __name__ == "__main__":
+    import importlib
+
+    try:
+        uvicorn = importlib.import_module("uvicorn")
+    except ImportError as exc:  # pragma: no cover - only triggered in dev
+        raise RuntimeError(
+            "Uvicorn is required to run the development server. Install it via `pip install uvicorn`."
+        ) from exc
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

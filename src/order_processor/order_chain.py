@@ -1,14 +1,19 @@
 import asyncio
-import configparser
 import json
-from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 from prompt import (
-    order_process_prompt,
     comanda_template,
+    get_message_enhancer_prompt,
+    get_order_process_prompt,
     pedido_template,
-    message_enhancer_prompt,
 )
+from src.utils.groq import build_chat_groq
+from src.utils.localization import (
+    format_currency,
+    get_language_labels,
+    normalize_language,
+)
+from src.utils.settings import get_settings
 
 class Pedido(BaseModel):
     nome_prato: str
@@ -35,29 +40,28 @@ class OrderProcessorChain:
         return cls._instance
 
     def __init__(self):
-        self.config = None
-        self.api_key = None
+        self.settings = None
         self.comanda_data = None
+        self.language = normalize_language("pt-br")
 
     def initialize_config(self, config_path: str):
         """Initializes configuration from the config file."""
-        config = configparser.ConfigParser()
-        config.read(config_path)
-        self.api_key = config["Settings"]["openaiAPIKey"]
+        self.settings = get_settings()
+        self.language = normalize_language(self.settings.language)
+        if not self.settings.groq_api_key:
+            raise ValueError("Missing GROQ_API_KEY in configuration.")
+        if not self.settings.groq_model_name:
+            raise ValueError("Missing groq_model_name in configuration.")
 
     def get_model(self):
-        """Returns an instance of the ChatOpenAI model for processing."""
-        return ChatOpenAI(
-            model_name="gpt-4o-mini-2024-07-18",
-            temperature=0.0,
-            openai_api_key=self.api_key,
-        )
+        """Returns a configured Groq chat model for processing."""
+        return build_chat_groq()
 
     async def process_comanda(self, comanda_text: str):
         """Processes the 'comanda' and performs corrections if needed."""
         self.comanda_text = comanda_text
         print("Chegou Comanda: ", comanda_text)
-        chain = order_process_prompt | self.get_model()
+        chain = get_order_process_prompt(self.language) | self.get_model()
 
         response = await chain.ainvoke(
             {
@@ -116,20 +120,23 @@ class OrderProcessorChain:
 
     def build_message(self):
         """Step 2: Builds the message to be saved."""
+        labels = get_language_labels(self.language)
         message_parts = []
 
         for pedido in self.comanda_data.pedidos:
             item_message = (
                 f"🍽 {pedido.nome_prato}\n"
-                f"{pedido.quantidade} un. x R$ {pedido.preco_unitario:.2f} = R$ {pedido.quantidade * pedido.preco_unitario:.2f}"
+                f"{pedido.quantidade} {labels['unit_label']} x "
+                f"{format_currency(pedido.preco_unitario, self.language)} = "
+                f"{format_currency(pedido.quantidade * pedido.preco_unitario, self.language)}"
             )
             message_parts.append(item_message)
 
-        message_parts.append("\n-----------------------------------\n")
+        message_parts.append(labels["separator"])
 
         summary_message = (
-            f"✨ Taxa de Serviço: R$ {self.comanda_data.valor_taxa_servico:.2f}\n"
-            f"💳 Total Bruto: R$ {self.comanda_data.valor_total_bruto:.2f}\n"
+            f"✨ {labels['service_fee']}: {format_currency(self.comanda_data.valor_taxa_servico, self.language)}\n"
+            f"💳 {labels['gross_total']}: {format_currency(self.comanda_data.valor_total_bruto, self.language)}\n"
         )
         message_parts.append(summary_message)
 
@@ -141,7 +148,7 @@ class OrderProcessorChain:
         message = self.build_message()
 
         # Enhancing message with the model
-        chain = message_enhancer_prompt | self.get_model()
+        chain = get_message_enhancer_prompt(self.language) | self.get_model()
 
         response = await chain.ainvoke({"message": message})
 
@@ -168,17 +175,30 @@ class OrderProcessorChain:
         print("Comanda processed successfully!")
         for pedido in self.comanda_data.pedidos:
             print(
-                f"{pedido.quantidade}x {pedido.nome_prato} - R$ {(pedido.quantidade * pedido.preco_unitario):.2f}"
+                f"{pedido.quantidade}x {pedido.nome_prato} - "
+                f"{format_currency(pedido.quantidade * pedido.preco_unitario, self.language)}"
             )
-        print(f"Taxa de serviço: R$ {self.comanda_data.valor_taxa_servico:.2f}")
-        print(f"Total Bruto: R$ {self.comanda_data.valor_total_bruto:.2f}")
-        print(f"Desconto: R$ {self.comanda_data.valor_desconto:.2f}")
-        print(f"Total com desconto: R$ {self.comanda_data.valor_total_desconto:.2f}")
+        labels = get_language_labels(self.language)
+        print(
+            f"{labels['service_fee']}: "
+            f"{format_currency(self.comanda_data.valor_taxa_servico, self.language)}"
+        )
+        print(
+            f"{labels['gross_total']}: "
+            f"{format_currency(self.comanda_data.valor_total_bruto, self.language)}"
+        )
+        print(
+            f"Desconto: {format_currency(self.comanda_data.valor_desconto, self.language)}"
+        )
+        print(
+            f"Total com desconto: "
+            f"{format_currency(self.comanda_data.valor_total_desconto, self.language)}"
+        )
 
         # Step 3: Build and save the message to a file
-        processed_message =  await self.build_and_save_message()
+        processed_message = await self.build_and_save_message()
         return {
-            "status": "Message processed successfully",
+            "status": labels["status_success"],
             "message": processed_message,
             "details": {
                 "total": self.comanda_data.valor_total_bruto,

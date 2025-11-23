@@ -1,10 +1,9 @@
-import asyncio
-import uuid
 import base64
-import json
-import time
 import logging
-from typing import Dict, List, Type, Optional
+import asyncio
+import json
+import uuid
+from typing import Any, Dict, List, Optional, Tuple, Type
 from fastapi import HTTPException
 from .token_manager import TokenManager
 from .tcp_client import TCPClient
@@ -64,6 +63,50 @@ class RestaurantClient:
             logger.debug("Initializing product cache.")
             asyncio.run(self.load_products())
         self.token_manager: TokenManager = token_manager
+
+    def _format_ascii(self, value: str) -> str:
+        """Return the ASCII-safe version of the provided string."""
+        return value.encode("ascii", errors="replace").decode("ascii")
+
+    def _to_hex(self, value: str) -> str:
+        """Return hexadecimal representation of a string."""
+        return value.encode().hex()
+
+    def _build_wire_trace(
+        self,
+        request: str,
+        response: str,
+        payloads: Optional[Dict[str, Any]] = None,
+        pos_message: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Build a trace object with raw/hex/ascii forms and decoded payloads."""
+        trace_payloads = payloads or {}
+        return {
+            "request": {
+                "raw": request,
+                "ascii": self._format_ascii(request),
+                "hex": self._to_hex(request),
+            },
+            "response": {
+                "raw": response,
+                "ascii": self._format_ascii(response),
+                "hex": self._to_hex(response),
+            },
+            "payloads": trace_payloads,
+            "pos_message": pos_message or request,
+        }
+
+    def _decode_queue(self, encoded_queue: str) -> Optional[Dict[str, Any]]:
+        """Decode a base64 encoded queue payload if possible."""
+        if not encoded_queue:
+            return None
+        try:
+            decoded_bytes = base64.b64decode(encoded_queue)
+            decoded_str = decoded_bytes.decode("utf-8")
+            return json.loads(decoded_str)
+        except Exception as exc:
+            logger.warning(f"Failed to decode queue payload: {exc}")
+            return None
 
     async def load_products(self):
         """Load products and store them in the cache."""
@@ -165,6 +208,22 @@ class RestaurantClient:
 
     async def fetch_table_content(self, table_id: int) -> Dict:
         """Fetch content for a specific table and enrich it with product names."""
+        table_content, _ = await self._fetch_table_content(
+            table_id=table_id, include_trace=False
+        )
+        return table_content
+
+    async def fetch_table_content_with_trace(self, table_id: int) -> Dict[str, Any]:
+        """Fetch table content along with the TCP wire trace."""
+        table_content, wire_trace = await self._fetch_table_content(
+            table_id=table_id, include_trace=True
+        )
+        return {"table": table_content, "wire_trace": wire_trace}
+
+    async def _fetch_table_content(
+        self, table_id: int, include_trace: bool = False
+    ) -> Tuple[Dict, Optional[Dict[str, Any]]]:
+        """Internal helper to fetch table content with optional trace building."""
         logger.info(f"Fetching content for table ID: {table_id}")
         try:
             message = await self.message_builder.build_get_board_content(
@@ -186,10 +245,18 @@ class RestaurantClient:
             )
             logger.debug(f"Raw table content: {table_content}")
 
-            # Call the enriched method (updated to use _fetch_product)
             await self._enrich_table_content_with_product_names(table_content)
             logger.info(f"Enriched table content for table ID {table_id}.")
-            return table_content
+
+            wire_trace = None
+            if include_trace:
+                wire_trace = self._build_wire_trace(
+                    request=message,
+                    response=response,
+                    payloads={"response_boardinfo": table_content},
+                    pos_message=message,
+                )
+            return table_content, wire_trace
         except Exception as e:
             logger.error(f"Failed to fetch table content: {e}", exc_info=True)
             raise HTTPException(
@@ -217,15 +284,60 @@ class RestaurantClient:
             product = await self._fetch_product(str(item_id))
             item["itemName"] = product.name if product else "Unknown Product"
 
+    async def fetch_tables_with_trace(self) -> Dict[str, Any]:
+        """Fetch tables along with a wire trace."""
+        tables, wire_trace = await self._fetch_tables(include_trace=True)
+        return {"tables": tables, "wire_trace": wire_trace}
+
     async def fetch_tables(self) -> List[Table]:
         """Fetch a list of tables from the server via TCP."""
+        tables, _ = await self._fetch_tables(include_trace=False)
+        return tables
+
+    async def _fetch_tables(
+        self, include_trace: bool = False
+    ) -> Tuple[List[Table], Optional[Dict[str, Any]]]:
+        """Internal helper to fetch tables with optional wire trace."""
         logger.info("Fetching list of tables.")
         try:
-            tables = await self._fetch_data_list(
-                object_type="XDPeople.Entities.MobileBoardStatus", model_class=Table
+            message = await self.message_builder.build_get_data_list(
+                object_type="XDPeople.Entities.MobileBoardStatus",
+                part=0,
+                limit=self.LIMIT,
+                message_id=str(uuid.uuid4()),
             )
+            response = await self._send_message(message)
+
+            if not response:
+                raise HTTPException(
+                    status_code=500, detail="Failed to receive response from the TCP server"
+                )
+
+            encoded_object = self._extract_field(response, "[NP]OBJECT[EQ]")
+            decoded_json = self._decode_base64_json(encoded_object)
+            tables = [Table(**item) for item in decoded_json]
+
+            wire_trace = None
+            if include_trace:
+                wire_trace = self._build_wire_trace(
+                    request=message,
+                    response=response,
+                    payloads={"response_object": decoded_json},
+                    pos_message=message,
+                )
             logger.info(f"Fetched {len(tables)} tables.")
-            return tables
+            return tables, wire_trace
+        except ValueError as e:
+            if "No NP]OBJECT[EQ field found in the response" in str(e):
+                await self.token_manager.set_unauthenticated()
+                raise HTTPException(
+                    status_code=401,
+                    detail="Authentication error: token expired or invalid",
+                )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to decode or process the response: {str(e)}",
+            )
         except Exception as e:
             logger.error(f"Failed to fetch tables: {e}", exc_info=True)
             raise HTTPException(
@@ -234,6 +346,18 @@ class RestaurantClient:
 
     async def prebill(self, table_id: int) -> str:
         """Send a POSTQUEUE message to close a table's order."""
+        response, _ = await self._prebill(table_id=table_id, include_trace=False)
+        return response
+
+    async def prebill_with_trace(self, table_id: int) -> Dict[str, Any]:
+        """Send a POSTQUEUE message to close a table's order with wire trace."""
+        response, wire_trace = await self._prebill(table_id=table_id, include_trace=True)
+        return {"result": response, "wire_trace": wire_trace}
+
+    async def _prebill(
+        self, table_id: int, include_trace: bool = False
+    ) -> Tuple[str, Optional[Dict[str, Any]]]:
+        """Internal helper to execute prebill with optional trace."""
         logger.info(f"Initiating prebill for table ID: {table_id}")
         try:
             table_content = await self.fetch_table_content(table_id)
@@ -258,8 +382,24 @@ class RestaurantClient:
                     detail="Failed to receive response from the TCP server",
                 )
 
+            wire_trace = None
+            if include_trace:
+                encoded_queue = None
+                try:
+                    encoded_queue = self._extract_field(message, "[NP]QUEUE[EQ]")
+                except ValueError:
+                    logger.debug("QUEUE field missing from prebill message.")
+                decoded_queue = self._decode_queue(encoded_queue) if encoded_queue else None
+                payloads = {"request_queue": decoded_queue} if decoded_queue else {}
+                wire_trace = self._build_wire_trace(
+                    request=message,
+                    response=response,
+                    payloads=payloads,
+                    pos_message=message,
+                )
+
             logger.info(f"Prebill response for table ID {table_id}: {response}")
-            return response
+            return response, wire_trace
         except Exception as e:
             logger.error(f"Failed to post queue: {e}", exc_info=True)
             raise HTTPException(
@@ -268,6 +408,20 @@ class RestaurantClient:
 
     async def close_table(self, table_id: int) -> str:
         """Send a POSTQUEUE message to close the table after payment."""
+        response, _ = await self._close_table(table_id=table_id, include_trace=False)
+        return response
+
+    async def close_table_with_trace(self, table_id: int) -> Dict[str, Any]:
+        """Send a POSTQUEUE message to close the table after payment and include the wire trace."""
+        response, wire_trace = await self._close_table(
+            table_id=table_id, include_trace=True
+        )
+        return {"result": response, "wire_trace": wire_trace}
+
+    async def _close_table(
+        self, table_id: int, include_trace: bool = False
+    ) -> Tuple[str, Optional[Dict[str, Any]]]:
+        """Internal helper to close the table with optional wire trace."""
         logger.info(f"Closing table ID: {table_id}")
         try:
             message = await self.message_builder.build_close_table_message(
@@ -285,12 +439,28 @@ class RestaurantClient:
                     detail="Failed to receive response from the TCP server",
                 )
 
+            wire_trace = None
+            if include_trace:
+                encoded_queue = None
+                try:
+                    encoded_queue = self._extract_field(message, "[NP]QUEUE[EQ]")
+                except ValueError:
+                    logger.debug("QUEUE field missing from close table message.")
+                decoded_queue = self._decode_queue(encoded_queue) if encoded_queue else None
+                payloads = {"request_queue": decoded_queue} if decoded_queue else {}
+                wire_trace = self._build_wire_trace(
+                    request=message,
+                    response=response,
+                    payloads=payloads,
+                    pos_message=message,
+                )
+
             logger.info(f"Close table response for table ID {table_id}: {response}")
-            return response
+            return response, wire_trace
         except Exception as e:
             logger.error(f"Failed to close table: {e}", exc_info=True)
             raise HTTPException(
-                status_code=500, detail=f"Failed to close table: {str(e)}"
+                status_code=500, detail=f"Failed to close table: {e}"
             )
 
     @staticmethod
