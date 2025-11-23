@@ -29,7 +29,10 @@ class TimingMiddleware(BaseHTTPMiddleware):
             
             # Create a new JSON response with the updated data
             new_response = JSONResponse(content=data, status_code=response.status_code)
-            
+            for header, value in response.headers.items():
+                if header.lower() == "content-length":
+                    continue
+                new_response.headers[header] = value
             return new_response
         else:
             # For non-JSON responses, you can add a header instead

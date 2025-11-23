@@ -1,9 +1,10 @@
 import asyncio
-import uuid
+import json
+import logging
 import random
 import time
-import logging
-from typing import Dict, List, Optional
+import uuid
+from typing import Any, Dict, List, Optional, Tuple
 from fastapi import HTTPException
 from faker import Faker
 from ..models.entity_models import Product, Table
@@ -49,6 +50,46 @@ class RestaurantMockClient:
         except Exception as e:
             logger.exception("Failed to load mock tables.")
             raise
+
+    def _format_ascii(self, value: str) -> str:
+        """Return the ASCII-safe version of a string."""
+        return value.encode("ascii", errors="replace").decode("ascii")
+
+    def _to_hex(self, value: str) -> str:
+        """Return hexadecimal representation of a string."""
+        return value.encode().hex()
+
+    def _wire_repr(self, payload: Any) -> str:
+        """Serialize payloads for trace visualization."""
+        try:
+            return json.dumps(payload, default=str)
+        except Exception:
+            return str(payload)
+
+    def _build_wire_trace(
+        self,
+        action: str,
+        response_payload: Any,
+        payloads: Optional[Dict[str, Any]] = None,
+        pos_message: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Build a lightweight mock wire trace."""
+        request = f"MOCK::{action}"
+        response_str = self._wire_repr(response_payload)
+        return {
+            "request": {
+                "raw": request,
+                "ascii": request,
+                "hex": self._to_hex(request),
+            },
+            "response": {
+                "raw": response_str,
+                "ascii": self._format_ascii(response_str),
+                "hex": self._to_hex(response_str),
+            },
+            "payloads": payloads or {},
+            "pos_message": pos_message or request,
+        }
 
     async def load_products(self):
         """
@@ -121,9 +162,20 @@ class RestaurantMockClient:
         Mock method to fetch table content with random orders.
         This simulates what fetch_table_content does in RestaurantClient.
         """
+        content, _ = await self._fetch_table_content(table_id=table_id, include_trace=False)
+        return content
+
+    async def fetch_table_content_with_trace(self, table_id: int) -> Dict[str, Any]:
+        """Return mock table content along with a trace envelope."""
+        content, trace = await self._fetch_table_content(table_id=table_id, include_trace=True)
+        return {"table": content, "wire_trace": trace}
+
+    async def _fetch_table_content(
+        self, table_id: int, include_trace: bool = False
+    ) -> Tuple[Dict, Optional[Dict[str, Any]]]:
+        """Generate mock table content and optionally return trace data."""
         logger.info(f"Fetching content for table ID: {table_id}")
         try:
-            # Simulate token validation
             await self.token_manager.get_token()
             if self.token_manager.is_token_expired():
                 logger.warning("Token expired while fetching table content.")
@@ -142,9 +194,8 @@ class RestaurantMockClient:
             logger.debug(f"Table ID {table_id} status: {table_status}")
 
             if table_status == 0:
-                # Table is available, no content
                 logger.info(f"Table ID {table_id} is available. No content to fetch.")
-                return {
+                content = {
                     "id": table_id,
                     "status": table_status,
                     "tableLocation": None,
@@ -152,6 +203,14 @@ class RestaurantMockClient:
                     "total": 0.0,
                     "globalDiscount": 0.0,
                 }
+                trace = None
+                if include_trace:
+                    trace = self._build_wire_trace(
+                        action=f"FETCH_TABLE_CONTENT::{table_id}",
+                        response_payload=content,
+                        payloads={"response_boardinfo": content},
+                    )
+                return content, trace
 
             num_orders = random.randint(2, 6)
             logger.debug(
@@ -200,7 +259,15 @@ class RestaurantMockClient:
                 random.uniform(0.05, 0.2)
             )  # Simulate asynchronous operation
             logger.debug(f"Fetched table content: {mock_table_content}")
-            return mock_table_content
+
+            wire_trace = None
+            if include_trace:
+                wire_trace = self._build_wire_trace(
+                    action=f"FETCH_TABLE_CONTENT::{table_id}",
+                    response_payload=mock_table_content,
+                    payloads={"response_boardinfo": mock_table_content},
+                )
+            return mock_table_content, wire_trace
         except HTTPException as http_exc:
             logger.error(f"HTTPException in fetch_table_content: {http_exc.detail}")
             raise
@@ -212,9 +279,20 @@ class RestaurantMockClient:
         """
         Mock method to fetch a list of tables, simulating what fetch_tables does in RestaurantClient.
         """
+        tables, _ = await self._fetch_tables(include_trace=False)
+        return tables
+
+    async def fetch_tables_with_trace(self) -> Dict[str, Any]:
+        """Return tables plus a lightweight mock wire trace."""
+        tables, trace = await self._fetch_tables(include_trace=True)
+        return {"tables": tables, "wire_trace": trace}
+
+    async def _fetch_tables(
+        self, include_trace: bool = False
+    ) -> Tuple[List[Table], Optional[Dict[str, Any]]]:
+        """Internal helper to fetch tables with optional mock trace."""
         logger.info("Fetching list of tables.")
         try:
-            # Simulate token validation
             await self.token_manager.get_token()
             if self.token_manager.is_token_expired():
                 logger.warning("Token expired while fetching tables.")
@@ -224,7 +302,15 @@ class RestaurantMockClient:
                 random.uniform(0.05, 0.2)
             )  # Simulate asynchronous operation
             logger.debug(f"Fetched {len(self.tables)} mock tables.")
-            return self.tables
+            wire_trace = None
+            if include_trace:
+                payloads = {"response_object": [table.model_dump() for table in self.tables]}
+                wire_trace = self._build_wire_trace(
+                    action="FETCH_TABLES",
+                    response_payload=payloads["response_object"],
+                    payloads=payloads,
+                )
+            return self.tables, wire_trace
         except HTTPException as http_exc:
             logger.error(f"HTTPException in fetch_tables: {http_exc.detail}")
             raise
@@ -240,9 +326,20 @@ class RestaurantMockClient:
         - If no orders, 404
         - Otherwise, simulate posting the queue and return success.
         """
+        result, _ = await self._prebill(table_id=table_id, include_trace=False)
+        return result
+
+    async def prebill_with_trace(self, table_id: int) -> Dict[str, Any]:
+        """Mocked prebill with trace metadata."""
+        result, trace = await self._prebill(table_id=table_id, include_trace=True)
+        return {"result": result, "wire_trace": trace}
+
+    async def _prebill(
+        self, table_id: int, include_trace: bool = False
+    ) -> Tuple[str, Optional[Dict[str, Any]]]:
+        """Internal helper for prebill with optional trace."""
         logger.info(f"Initiating prebill for table ID: {table_id}")
         try:
-            # Simulate token validation
             await self.token_manager.get_token()
             if self.token_manager.is_token_expired():
                 logger.warning("Token expired while initiating prebill.")
@@ -258,14 +355,25 @@ class RestaurantMockClient:
                     status_code=404, detail="No orders found for the table."
                 )
 
-            # Simulate that the table moves to a 'reserved' state (like a prebill state)
             self.tables[table_id - 1].status = 2
             self.tables[table_id - 1].freeTable = False
             await asyncio.sleep(
                 random.uniform(0.05, 0.2)
             )  # Simulate asynchronous operation
             logger.info(f"Prebill posted successfully for table ID: {table_id}.")
-            return "Pré-conta gerada com sucesso."
+
+            wire_trace = None
+            if include_trace:
+                payloads = {
+                    "response_message": "Pré-conta gerada com sucesso.",
+                    "orders": orders,
+                }
+                wire_trace = self._build_wire_trace(
+                    action=f"PREBILL::{table_id}",
+                    response_payload=payloads,
+                    payloads=payloads,
+                )
+            return "Pré-conta gerada com sucesso.", wire_trace
         except HTTPException as http_exc:
             logger.error(f"HTTPException in prebill: {http_exc.detail}")
             raise
@@ -277,9 +385,20 @@ class RestaurantMockClient:
         """
         Mock method to simulate closing a table, as per the close_table method in RestaurantClient.
         """
+        result, _ = await self._close_table(table_id=table_id, include_trace=False)
+        return result
+
+    async def close_table_with_trace(self, table_id: int) -> Dict[str, Any]:
+        """Close a table and include a mock wire trace."""
+        result, trace = await self._close_table(table_id=table_id, include_trace=True)
+        return {"result": result, "wire_trace": trace}
+
+    async def _close_table(
+        self, table_id: int, include_trace: bool = False
+    ) -> Tuple[str, Optional[Dict[str, Any]]]:
+        """Internal helper to close a table with optional trace."""
         logger.info(f"Closing table ID: {table_id}")
         try:
-            # Simulate token validation
             await self.token_manager.get_token()
             if self.token_manager.is_token_expired():
                 logger.warning("Token expired while closing table.")
@@ -289,14 +408,25 @@ class RestaurantMockClient:
                 logger.error(f"Invalid table ID: {table_id}. Mesa não encontrada.")
                 raise HTTPException(status_code=404, detail="Mesa não encontrada.")
 
-            # Simulate closing the table (making it available again)
-            self.tables[table_id - 1].status = 0  # Available
+            self.tables[table_id - 1].status = 0
             self.tables[table_id - 1].freeTable = True
             await asyncio.sleep(
                 random.uniform(0.05, 0.2)
             )  # Simulate asynchronous operation
             logger.info(f"Table ID {table_id} closed successfully.")
-            return "Mesa fechada com sucesso."
+
+            wire_trace = None
+            if include_trace:
+                payloads = {
+                    "response_message": "Mesa fechada com sucesso.",
+                    "table": table_id,
+                }
+                wire_trace = self._build_wire_trace(
+                    action=f"CLOSE_TABLE::{table_id}",
+                    response_payload=payloads,
+                    payloads=payloads,
+                )
+            return "Mesa fechada com sucesso.", wire_trace
         except HTTPException as http_exc:
             logger.error(f"HTTPException in close_table: {http_exc.detail}")
             raise
