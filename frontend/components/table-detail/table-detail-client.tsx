@@ -1,11 +1,14 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 import { AlertCircle } from "lucide-react";
 
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { useTableDetail } from "@/lib/client-api";
+import type { TableStatus } from "@/lib/types";
 import { formatCurrency } from "@/lib/utils";
 
 import { TableActionsCard } from "./table-actions-card";
@@ -35,6 +38,14 @@ export function TableDetailClient({ tableId }: TableDetailClientProps) {
     mutate
   };
 
+  const [displayStatus, setDisplayStatus] = useState<TableStatus | undefined>(
+    table?.status
+  );
+
+  useEffect(() => {
+    setDisplayStatus(table?.status);
+  }, [table?.status]);
+
   return (
     <section className="space-y-6">
       <Card className="border border-border/80 bg-card">
@@ -56,7 +67,7 @@ export function TableDetailClient({ tableId }: TableDetailClientProps) {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <StatusBadge status={table?.status} />
+            <StatusBadge status={displayStatus ?? table?.status} />
           </div>
         </div>
         {normalizedError && !table && (
@@ -84,9 +95,10 @@ export function TableDetailClient({ tableId }: TableDetailClientProps) {
 
       <TableActionsCard
         tableId={tableId}
-        tableStatus={table?.status}
+        tableStatus={displayStatus ?? table?.status}
         wireTrace={data?.wire_trace}
         query={queryState}
+        onStatusChange={(status) => setDisplayStatus(status)}
       />
     </section>
   );

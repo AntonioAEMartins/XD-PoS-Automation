@@ -1,4 +1,4 @@
-export type TableStatus = 0 | 1 | 2 | number;
+export type TableStatus = 0 | 1 | 2 | 3 | 4 | number;
 
 export type WireSide = {
   raw: string;

@@ -19,6 +19,16 @@ const STATUS_STYLES: Record<
     label: "Closing",
     className: "bg-sky-50 text-sky-700 border-sky-200",
     dot: "bg-sky-500"
+  },
+  3: {
+    label: "Payment pending",
+    className: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    dot: "bg-indigo-500"
+  },
+  4: {
+    label: "Closed",
+    className: "bg-slate-100 text-slate-700 border-slate-200",
+    dot: "bg-slate-500"
   }
 };
 

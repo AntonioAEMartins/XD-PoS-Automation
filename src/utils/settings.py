@@ -4,7 +4,7 @@ import configparser
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from src.utils.localization import normalize_language
 
@@ -82,4 +82,14 @@ def get_settings(config_path: Path = DEFAULT_CONFIG_PATH) -> Settings:
 def refresh_settings():
     """Clear the cached Settings object. Useful for tests."""
     get_settings.cache_clear()
+
+
+def get_setting(key: str, default: Any = None) -> Any:
+    """
+    Convenience accessor for individual configuration values.
+
+    Falls back to `default` when the attribute is not defined.
+    """
+    settings = get_settings()
+    return getattr(settings, key, default)
 

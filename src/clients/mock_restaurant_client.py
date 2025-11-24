@@ -11,6 +11,7 @@ from faker import Faker
 
 from ..builders.pos_message_builder import MessageBuilder
 from ..models.entity_models import Product, Table
+from ..utils.settings import get_setting
 from .token_manager import TokenManager
 
 # Configure logging for this module
@@ -29,9 +30,6 @@ handler.setFormatter(formatter)
 if not logger.handlers:
     logger.addHandler(handler)
 
-fake = Faker("pt_BR")
-
-
 class RestaurantMockClient:
     USER_ID: str = "1"
     APP_VERSION: str = "1.0"
@@ -45,6 +43,9 @@ class RestaurantMockClient:
         """
         logger.info("Initializing RestaurantMockClient.")
         self.token_manager = token_manager
+        self.language = get_setting("language", "pt-br") or "pt-br"
+        faker_locale = "en_US" if self.language == "en-us" else "pt_BR"
+        self.fake = Faker(faker_locale)
         self.message_builder = MessageBuilder(
             user_id=self.USER_ID,
             app_version=self.APP_VERSION,
@@ -118,7 +119,7 @@ class RestaurantMockClient:
         Initialize a set of mock products with realistic Portuguese names and unique IDs.
         """
         logger.debug("Loading mock products.")
-        predefined_items = [
+        products_pt = [
             {"id": 2001, "name": "Picanha na Chapa"},
             {"id": 2002, "name": "Costela de Cordeiro"},
             {"id": 2003, "name": "Fraldinha Grelhada"},
@@ -140,10 +141,32 @@ class RestaurantMockClient:
             {"id": 2019, "name": "Brigadeiro Gourmet"},
             {"id": 2020, "name": "Quindim Tradicional"},
         ]
-
+        products_en = [
+            {"id": 2001, "name": "Grilled Picanha Steak"},
+            {"id": 2002, "name": "Slow-Cooked Lamb Ribs"},
+            {"id": 2003, "name": "Grilled Flank Steak"},
+            {"id": 2004, "name": "Smoky Chicken Wings"},
+            {"id": 2005, "name": "House-made Sausage"},
+            {"id": 2006, "name": "Ancho Ribeye Steak"},
+            {"id": 2007, "name": "Roasted Tri-Tip"},
+            {"id": 2008, "name": "Mixed Grill Skewer"},
+            {"id": 2009, "name": "Picanha Barbecue Platter"},
+            {"id": 2010, "name": "Charcuterie Board"},
+            {"id": 2011, "name": "Chicken Caesar Salad"},
+            {"id": 2012, "name": "Wild Mushroom Risotto"},
+            {"id": 2013, "name": "Brazilian Fish Stew"},
+            {"id": 2014, "name": "Brazilian Black Bean Stew"},
+            {"id": 2015, "name": "Portuguese Cod à Brás"},
+            {"id": 2016, "name": "Pumpkin Shrimp Stew"},
+            {"id": 2017, "name": "Creamy Shrimp Moqueca"},
+            {"id": 2018, "name": "Caramel Flan"},
+            {"id": 2019, "name": "Gourmet Brigadeiro Truffles"},
+            {"id": 2020, "name": "Traditional Quindim"},
+        ]
+        catalog = products_en if self.language == "en-us" else products_pt
         products = {
             item["id"]: Product(id=item["id"], name=item["name"])
-            for item in predefined_items
+            for item in catalog
         }
         logger.debug(f"Mock products loaded: {products}")
         return products
@@ -199,8 +222,8 @@ class RestaurantMockClient:
                 or table_id < 1
                 or table_id > len(self.tables)
             ):
-                logger.error(f"Invalid table ID: {table_id}. Mesa não encontrada.")
-                raise HTTPException(status_code=404, detail="Mesa não encontrada.")
+                logger.error(f"Invalid table ID: {table_id}. Table not found.")
+                raise HTTPException(status_code=404, detail="Table not found.")
 
             table = self.tables[table_id - 1]
             table_status = table.status
@@ -253,7 +276,7 @@ class RestaurantMockClient:
                     "parentPosition": -1,
                     "quantity": float(quantity),
                     "price": price,
-                    "additionalInfo": fake.sentence(nb_words=6),
+                    "additionalInfo": self.fake.sentence(nb_words=6),
                     "guid": str(uuid.uuid4()),
                     "employee": random.randint(1, 50),
                     "time": int(time.time() * 1000),
@@ -273,7 +296,7 @@ class RestaurantMockClient:
                 "id": table_id,
                 "status": table_status,
                 "tableLocation": (
-                    fake.address() if random.choice([True, False]) else None
+                    self.fake.address() if random.choice([True, False]) else None
                 ),
                 "content": order_content,
                 "total": round(total, 2),
@@ -299,7 +322,7 @@ class RestaurantMockClient:
             raise
         except Exception as e:
             logger.exception(f"Unexpected error in fetch_table_content: {e}")
-            raise HTTPException(status_code=500, detail="Erro interno do servidor.")
+            raise HTTPException(status_code=500, detail="Internal server error.")
 
     async def fetch_tables(self) -> List[Table]:
         """
@@ -352,7 +375,7 @@ class RestaurantMockClient:
             raise
         except Exception as e:
             logger.exception(f"Unexpected error in fetch_tables: {e}")
-            raise HTTPException(status_code=500, detail="Erro interno do servidor.")
+            raise HTTPException(status_code=500, detail="Internal server error.")
 
     async def prebill(self, table_id: int) -> str:
         """
@@ -409,7 +432,7 @@ class RestaurantMockClient:
                     fallback_label=f"PREBILL::{table_id}",
                 )
                 payloads = {
-                    "response_message": "Pré-conta gerada com sucesso.",
+                    "response_message": "Pre-bill generated successfully.",
                     "orders": orders,
                 }
                 wire_trace = self._build_wire_trace(
@@ -418,13 +441,13 @@ class RestaurantMockClient:
                     payloads=payloads,
                     pos_message=request_message,
                 )
-            return "Pré-conta gerada com sucesso.", wire_trace
+            return "Pre-bill generated successfully.", wire_trace
         except HTTPException as http_exc:
             logger.error(f"HTTPException in prebill: {http_exc.detail}")
             raise
         except Exception as e:
             logger.exception(f"Unexpected error in prebill: {e}")
-            raise HTTPException(status_code=500, detail="Erro interno do servidor.")
+            raise HTTPException(status_code=500, detail="Internal server error.")
 
     async def close_table(self, table_id: int) -> str:
         """
@@ -450,8 +473,8 @@ class RestaurantMockClient:
                 raise HTTPException(status_code=401, detail="Token expired")
 
             if table_id < 1 or table_id > len(self.tables):
-                logger.error(f"Invalid table ID: {table_id}. Mesa não encontrada.")
-                raise HTTPException(status_code=404, detail="Mesa não encontrada.")
+                logger.error(f"Invalid table ID: {table_id}. Table not found.")
+                raise HTTPException(status_code=404, detail="Table not found.")
 
             self.tables[table_id - 1].status = 0
             self.tables[table_id - 1].freeTable = True
@@ -470,7 +493,7 @@ class RestaurantMockClient:
                     fallback_label=f"CLOSE_TABLE::{table_id}",
                 )
                 payloads = {
-                    "response_message": "Mesa fechada com sucesso.",
+                    "response_message": "Table closed successfully.",
                     "table": table_id,
                 }
                 wire_trace = self._build_wire_trace(
@@ -479,13 +502,13 @@ class RestaurantMockClient:
                     payloads=payloads,
                     pos_message=request_message,
                 )
-            return "Mesa fechada com sucesso.", wire_trace
+            return "Table closed successfully.", wire_trace
         except HTTPException as http_exc:
             logger.error(f"HTTPException in close_table: {http_exc.detail}")
             raise
         except Exception as e:
             logger.exception(f"Unexpected error in close_table: {e}")
-            raise HTTPException(status_code=500, detail="Erro interno do servidor.")
+            raise HTTPException(status_code=500, detail="Internal server error.")
 
     async def _build_protocol_message(
         self, builder_coro: Awaitable[str], fallback_label: str

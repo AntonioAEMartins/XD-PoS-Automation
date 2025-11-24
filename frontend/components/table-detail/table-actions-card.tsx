@@ -22,13 +22,15 @@ type TableActionsCardProps = {
   tableStatus?: TableStatus;
   wireTrace?: WireTrace;
   query: TableDetailQueryState;
+  onStatusChange?: (status: TableStatus) => void;
 };
 
 export function TableActionsCard({
   tableId,
   tableStatus,
   wireTrace,
-  query
+  query,
+  onStatusChange
 }: TableActionsCardProps) {
   const isLoading = query.isLoading && !wireTrace;
   const showError = !!query.error && !wireTrace;
@@ -47,7 +49,12 @@ export function TableActionsCard({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
-        <ActionPanel tableId={tableId} status={tableStatus} />
+        <ActionPanel
+          tableId={tableId}
+          status={tableStatus}
+          onRefresh={() => query.mutate()}
+          onStatusChange={onStatusChange}
+        />
 
         {isLoading && <Skeleton className="h-48 w-full rounded-xl" />}
         {showError && (
