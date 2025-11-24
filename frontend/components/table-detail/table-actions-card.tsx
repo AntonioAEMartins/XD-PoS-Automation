@@ -71,6 +71,7 @@ export function TableActionsCard({
             viewerId={`table-wire-${tableId}`}
             title="Wire trace (table content)"
             className="shadow-none"
+            showPosTab={false}
           />
         )}
       </CardContent>

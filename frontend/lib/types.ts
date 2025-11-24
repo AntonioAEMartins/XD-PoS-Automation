@@ -11,6 +11,7 @@ export type WireTrace = {
   response: WireSide;
   payloads?: Record<string, unknown>;
   posMessage?: string;
+  pos_message?: string;
 };
 
 export type Table = {

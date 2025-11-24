@@ -4,9 +4,12 @@ import logging
 import random
 import time
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Dict, List, Optional, Tuple
+
 from fastapi import HTTPException
 from faker import Faker
+
+from ..builders.pos_message_builder import MessageBuilder
 from ..models.entity_models import Product, Table
 from .token_manager import TokenManager
 
@@ -30,6 +33,11 @@ fake = Faker("pt_BR")
 
 
 class RestaurantMockClient:
+    USER_ID: str = "1"
+    APP_VERSION: str = "1.0"
+    PROTOCOL_VERSION: str = "1"
+    LIMIT: int = 5000
+
     def __init__(self, token_manager: TokenManager):
         """
         Initialize the RestaurantMockClient with a TokenManager.
@@ -37,6 +45,12 @@ class RestaurantMockClient:
         """
         logger.info("Initializing RestaurantMockClient.")
         self.token_manager = token_manager
+        self.message_builder = MessageBuilder(
+            user_id=self.USER_ID,
+            app_version=self.APP_VERSION,
+            protocol_version=self.PROTOCOL_VERSION,
+        )
+        self.message_builder.token_manager = self.token_manager
         try:
             self.products = self._load_mock_products()
             logger.info(f"Loaded {len(self.products)} mock products.")
@@ -68,18 +82,17 @@ class RestaurantMockClient:
 
     def _build_wire_trace(
         self,
-        action: str,
+        request: str,
         response_payload: Any,
         payloads: Optional[Dict[str, Any]] = None,
         pos_message: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Build a lightweight mock wire trace."""
-        request = f"MOCK::{action}"
+        """Build a lightweight mock wire trace that mirrors the production shape."""
         response_str = self._wire_repr(response_payload)
         return {
             "request": {
                 "raw": request,
-                "ascii": request,
+                "ascii": self._format_ascii(request),
                 "hex": self._to_hex(request),
             },
             "response": {
@@ -193,6 +206,15 @@ class RestaurantMockClient:
             table_status = table.status
             logger.debug(f"Table ID {table_id} status: {table_status}")
 
+            request_message: Optional[str] = None
+            if include_trace:
+                request_message = await self._build_protocol_message(
+                    self.message_builder.build_get_board_content(
+                        board_id=str(table_id)
+                    ),
+                    fallback_label=f"FETCH_TABLE_CONTENT::{table_id}",
+                )
+
             if table_status == 0:
                 logger.info(f"Table ID {table_id} is available. No content to fetch.")
                 content = {
@@ -206,9 +228,11 @@ class RestaurantMockClient:
                 trace = None
                 if include_trace:
                     trace = self._build_wire_trace(
-                        action=f"FETCH_TABLE_CONTENT::{table_id}",
+                        request=request_message
+                        or f"MOCK::FETCH_TABLE_CONTENT::{table_id}",
                         response_payload=content,
                         payloads={"response_boardinfo": content},
+                        pos_message=request_message,
                     )
                 return content, trace
 
@@ -263,9 +287,11 @@ class RestaurantMockClient:
             wire_trace = None
             if include_trace:
                 wire_trace = self._build_wire_trace(
-                    action=f"FETCH_TABLE_CONTENT::{table_id}",
+                    request=request_message
+                    or f"MOCK::FETCH_TABLE_CONTENT::{table_id}",
                     response_payload=mock_table_content,
                     payloads={"response_boardinfo": mock_table_content},
+                    pos_message=request_message,
                 )
             return mock_table_content, wire_trace
         except HTTPException as http_exc:
@@ -305,10 +331,20 @@ class RestaurantMockClient:
             wire_trace = None
             if include_trace:
                 payloads = {"response_object": [table.model_dump() for table in self.tables]}
+                request_message = await self._build_protocol_message(
+                    self.message_builder.build_get_data_list(
+                        object_type="XDPeople.Entities.MobileBoardStatus",
+                        part=0,
+                        limit=self.LIMIT,
+                        message_id=str(uuid.uuid4()),
+                    ),
+                    fallback_label="FETCH_TABLES",
+                )
                 wire_trace = self._build_wire_trace(
-                    action="FETCH_TABLES",
+                    request=request_message,
                     response_payload=payloads["response_object"],
                     payloads=payloads,
+                    pos_message=request_message,
                 )
             return self.tables, wire_trace
         except HTTPException as http_exc:
@@ -364,14 +400,23 @@ class RestaurantMockClient:
 
             wire_trace = None
             if include_trace:
+                request_message = await self._build_protocol_message(
+                    self.message_builder.build_prebill_message(
+                        employee_id=int(self.USER_ID),
+                        table=table_id,
+                        orders=orders,
+                    ),
+                    fallback_label=f"PREBILL::{table_id}",
+                )
                 payloads = {
                     "response_message": "Pré-conta gerada com sucesso.",
                     "orders": orders,
                 }
                 wire_trace = self._build_wire_trace(
-                    action=f"PREBILL::{table_id}",
+                    request=request_message,
                     response_payload=payloads,
                     payloads=payloads,
+                    pos_message=request_message,
                 )
             return "Pré-conta gerada com sucesso.", wire_trace
         except HTTPException as http_exc:
@@ -417,14 +462,22 @@ class RestaurantMockClient:
 
             wire_trace = None
             if include_trace:
+                request_message = await self._build_protocol_message(
+                    self.message_builder.build_close_table_message(
+                        employee_id=int(self.USER_ID),
+                        table=table_id,
+                    ),
+                    fallback_label=f"CLOSE_TABLE::{table_id}",
+                )
                 payloads = {
                     "response_message": "Mesa fechada com sucesso.",
                     "table": table_id,
                 }
                 wire_trace = self._build_wire_trace(
-                    action=f"CLOSE_TABLE::{table_id}",
+                    request=request_message,
                     response_payload=payloads,
                     payloads=payloads,
+                    pos_message=request_message,
                 )
             return "Mesa fechada com sucesso.", wire_trace
         except HTTPException as http_exc:
@@ -433,3 +486,17 @@ class RestaurantMockClient:
         except Exception as e:
             logger.exception(f"Unexpected error in close_table: {e}")
             raise HTTPException(status_code=500, detail="Erro interno do servidor.")
+
+    async def _build_protocol_message(
+        self, builder_coro: Awaitable[str], fallback_label: str
+    ) -> str:
+        """Safely build PoS protocol messages, falling back to descriptive mock labels."""
+        try:
+            return await builder_coro
+        except Exception as exc:  # pragma: no cover - diagnostic path
+            logger.warning(
+                "Failed to build %s protocol message. Falling back to mock label. Error: %s",
+                fallback_label,
+                exc,
+            )
+            return f"MOCK::{fallback_label}"

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Code2, SplitSquareVertical } from "lucide-react";
 
 import { WireTrace } from "@/lib/types";
+import { getPosMessage } from "@/lib/wire-trace";
 import { cn } from "@/lib/utils";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -16,6 +17,7 @@ type WireViewerProps = {
   viewerId?: string;
   className?: string;
   title?: string;
+  showPosTab?: boolean;
 };
 
 function safeBase64(value: string | undefined) {
@@ -34,10 +36,18 @@ export function WireViewer({
   trace,
   viewerId = "wire-viewer",
   className,
-  title = "Wire trace"
+  title = "Wire trace",
+  showPosTab = true
 }: WireViewerProps) {
   const [format, setFormat] = useState<FormatOption>("raw");
   const [side, setSide] = useState<TraceSide>("request");
+  const posMessage = useMemo(() => getPosMessage(trace), [trace]);
+
+  useEffect(() => {
+    if (!showPosTab && side === "pos") {
+      setSide("request");
+    }
+  }, [showPosTab, side]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -64,8 +74,8 @@ export function WireViewer({
       empty: "Response trace unavailable."
     };
     const posSlice = {
-      raw: trace?.posMessage,
-      ascii: trace?.posMessage,
+      raw: posMessage,
+      ascii: posMessage,
       empty: "PoS message unavailable."
     };
 
@@ -78,7 +88,7 @@ export function WireViewer({
       default:
         return requestSlice;
     }
-  }, [side, trace?.posMessage, trace?.request?.ascii, trace?.request?.raw, trace?.response?.ascii, trace?.response?.raw]);
+  }, [side, posMessage, trace?.request?.ascii, trace?.request?.raw, trace?.response?.ascii, trace?.response?.raw]);
 
   const formattedContent = useMemo(() => {
     if (!selectedContent.raw) {
@@ -120,7 +130,7 @@ export function WireViewer({
             <TabsList>
               <TabsTrigger value="request">Request</TabsTrigger>
               <TabsTrigger value="response">Response</TabsTrigger>
-              <TabsTrigger value="pos">PoS</TabsTrigger>
+              {showPosTab && <TabsTrigger value="pos">PoS</TabsTrigger>}
             </TabsList>
           </Tabs>
 

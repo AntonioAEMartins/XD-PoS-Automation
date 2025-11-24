@@ -84,6 +84,7 @@ export function ActionPanel({ tableId, status, className }: ActionPanelProps) {
           trace={lastTrace}
           viewerId={`action-trace-${tableId}`}
           title="Last action"
+          showPosTab={false}
         />
       )}
     </div>

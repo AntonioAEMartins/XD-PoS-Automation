@@ -75,9 +75,6 @@ export default async function HomePage({
     <main className="mx-auto max-w-6xl space-y-6 px-4 py-10 lg:px-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-            Frontend debug console
-          </p>
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-900">
             Table & TCP Message Monitoring
           </h1>
@@ -108,13 +105,6 @@ export default async function HomePage({
         </Card>
       ) : (
         <>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <SummaryCard title="Open tables" value={summary.open} accent="text-amber-600" />
-            <SummaryCard title="Closing soon" value={summary.closing} accent="text-sky-700" />
-            <SummaryCard title="Available" value={summary.free} accent="text-emerald-700" />
-            <SummaryCard title="Total" value={summary.total} accent="text-slate-900" />
-          </div>
-
           <Card className="shadow-sm">
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -213,6 +203,7 @@ export default async function HomePage({
                   viewerId="list-wire-trace"
                   title="Wire trace (table listing)"
                   className="border-none shadow-none"
+                  showPosTab={false}
                 />
               </div>
             </details>
@@ -220,28 +211,6 @@ export default async function HomePage({
         </>
       )}
     </main>
-  );
-}
-
-function SummaryCard({
-  title,
-  value,
-  accent
-}: {
-  title: string;
-  value: number;
-  accent: string;
-}) {
-  return (
-    <Card className="shadow-sm">
-      <CardHeader className="pb-2">
-        <CardDescription>{title}</CardDescription>
-        <CardTitle className={`text-3xl font-bold ${accent}`}>{value}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="h-1.5 rounded-full bg-gradient-to-r from-primary via-secondary to-primary/60" />
-      </CardContent>
-    </Card>
   );
 }
 
