@@ -21,6 +21,8 @@ In the examples, we use the term **“order card (comanda)”** for the physical
 
 This repository implements the **XD Orders PoS connector** that runs inside the restaurant.
 
+![XD PoS connector architecture](docs/system-architecture.jpg)
+
 - **Primary role**: mimic the waiter’s phone, speak the proprietary XD Orders TCP protocol, and expose an **HTTP API + web panel** that Astra’s NestJS backend can call over VPN.
 - **Main responsibilities**:
   - **Fetch table data in real time** from the PoS (list all tables, load the full bill for a specific table).
@@ -86,6 +88,8 @@ This repository implements the **XD Orders PoS connector** that runs inside the 
 ### 3. How it works
 
 #### 3.1 Customer journey (WhatsApp checkout)
+
+![XD authentication flow](docs/authentication-flow.jpg)
 
 1. **Start**
    - The guest scans a **QR code** on the table or on the **order card (comanda)**.
