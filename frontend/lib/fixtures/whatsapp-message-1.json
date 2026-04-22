@@ -1,0 +1,39 @@
+{
+  "status": "ok",
+  "message": "Ol\u00e1! Aqui est\u00e1 a sua conta da mesa 1:\n\n- 2x Picanha na Chapa: R$ 179.80\n- 1x Salada Caesar com Frango: R$ 44.90\n- 2x Caipirinha de Lim\u00e3o: R$ 48.00\n- 3x Chopp Pilsen 300ml: R$ 36.00\n- 2x Pudim de Leite: R$ 44.00\n\nTotal: R$ 352.70\n\nPara pagar agora, basta responder PAGAR nesta conversa.",
+  "details": {
+    "total": 352.7,
+    "orders": [
+      {
+        "product_name": "Picanha na Chapa",
+        "quantity": 2.0,
+        "price": 89.9,
+        "total": 179.8
+      },
+      {
+        "product_name": "Salada Caesar com Frango",
+        "quantity": 1.0,
+        "price": 44.9,
+        "total": 44.9
+      },
+      {
+        "product_name": "Caipirinha de Lim\u00e3o",
+        "quantity": 2.0,
+        "price": 24.0,
+        "total": 48.0
+      },
+      {
+        "product_name": "Chopp Pilsen 300ml",
+        "quantity": 3.0,
+        "price": 12.0,
+        "total": 36.0
+      },
+      {
+        "product_name": "Pudim de Leite",
+        "quantity": 2.0,
+        "price": 22.0,
+        "total": 44.0
+      }
+    ]
+  }
+}

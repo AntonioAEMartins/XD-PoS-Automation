@@ -1,0 +1,38 @@
+---
+title: "Concierge MVP"
+order: 2
+summary: "Two founders, two phones, one dining room, and roughly 20 payments processed by hand."
+---
+
+# Concierge MVP
+
+## The setup
+
+Before we wrote a line of integration code, we wanted to know whether customers would actually pay their restaurant bill inside WhatsApp. The only way to find that out was to put the product in front of real guests. The fastest way to put the product in front of real guests was for us to be the product.
+
+Two of us, two phones, one dining room.
+
+## The mechanics
+
+Here is what happened when a table scanned the QR code on their comanda.
+
+1. The QR deep-linked into WhatsApp with a pre-filled message: something like *"pay table 20"*. That message landed on a phone we had sitting at one end of the dining room.
+2. The person holding that phone pinged the other phone — literally over WhatsApp, on a private thread — with the table number.
+3. The second person walked to the PoS terminal, pulled up the table, copied the items and the total, and typed them back.
+4. The first person sent the bill to the guest as a WhatsApp message and a payment link.
+5. The guest paid. We saw the confirmation.
+6. The second person walked back to the cashier and manually marked the table closed.
+
+One table took two people and several minutes of walking. It was not scalable. It was not supposed to be.
+
+## What we learned
+
+We processed roughly twenty payments this way. {/* TODO: Antonio confirm — exact count over how many shifts, and whether any tables bailed out mid-flow. */} The things that mattered were not quantitative.
+
+The first thing was that customers did it. They scanned, they read the bill in WhatsApp, they paid. Nobody refused. Nobody asked for a printed check. A handful asked if this was new, and a handful thanked us for not making them stand in line — those were the signals.
+
+The second thing was that the restaurant was happy with the payment side and unhappy with the PoS side. The cashier watched us walk back and forth and asked, reasonably, *"why are you doing that part?"*
+
+The third thing, the thing that mattered most, was that the entire manual dance existed because of a single step: flipping the table's status in the PoS from *open* to *paying* to *closed*. Everything else — the WhatsApp message, the bill, the payment — was already automated inside our own stack. The PoS was the loop we could not get out of.
+
+Which led directly to the next question.

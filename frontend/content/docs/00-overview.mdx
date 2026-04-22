@@ -1,0 +1,29 @@
+---
+title: "Overview"
+order: 0
+summary: "A payment product that required reverse-engineering a proprietary PoS to ship. Here is what we did and why."
+---
+
+# Overview
+
+## The problem
+
+In Brazilian restaurants at peak hours, the cashier is the bottleneck. Ten customers line up, each payment takes one to two minutes, and the last person in line waits ten to twenty minutes to hand over a card. The dining room has already done its job. The experience ends at the queue.
+
+We built a payment product that lets guests pay inside WhatsApp — scan a code at the table, confirm the bill, pay via Pix or card, leave. In parallel. No line. The hard part turned out not to be the payment flow. It was the PoS.
+
+## The outcome
+
+What runs in production today is an on-premises agent that sits inside the restaurant network, speaks a proprietary PoS protocol over TCP, and exposes a small HTTP API that our cloud backend can call over a private tunnel. Guests pay over WhatsApp; the agent flips the table's status inside the PoS so waiters still see the source of truth on their usual screen. {/* TODO: Antonio confirm — current deployment count, total payments processed, average checkout-time reduction in production. */}
+
+No official API was ever released by the PoS vendor. Everything the agent does, it does by mimicking the Android handheld the waiters carry.
+
+## What this document is
+
+Chapters 1 through 4 are the business story: why restaurants rejected us, what the first customer required, how we hand-operated the product with two phones, and what we were staring at when we realized we had to reverse-engineer the PoS. It is the part of the work that does not appear in commits.
+
+Chapters 5 through 11 are the engineering: how we sat between the handheld and the PoS, what fell out of the packet captures, why the Android app gave up more than the desktop one, what we had to invent to talk to the PoS ourselves, and what finally shipped. {/* TODO: Antonio confirm — chapter count and titles once Tracks E2 and E3 land. */}
+
+[Chapter 12](/docs/12-outcome) is what it proved.
+
+Start with [the wall](/docs/01-the-wall).

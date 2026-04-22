@@ -1,0 +1,39 @@
+{
+  "status": "ok",
+  "message": "Ol\u00e1! Aqui est\u00e1 a sua conta da mesa 12:\n\n- 2x Fraldinha Grelhada: R$ 145.00\n- 1x Moqueca de Peixe: R$ 89.00\n- 2x Asinha de Frango: R$ 79.80\n- 3x Suco de Laranja Natural: R$ 42.00\n- 4x Chopp Pilsen 300ml: R$ 48.00\n\nTotal: R$ 403.80\n\nPara pagar agora, basta responder PAGAR nesta conversa.",
+  "details": {
+    "total": 403.8,
+    "orders": [
+      {
+        "product_name": "Fraldinha Grelhada",
+        "quantity": 2.0,
+        "price": 72.5,
+        "total": 145.0
+      },
+      {
+        "product_name": "Moqueca de Peixe",
+        "quantity": 1.0,
+        "price": 89.0,
+        "total": 89.0
+      },
+      {
+        "product_name": "Asinha de Frango",
+        "quantity": 2.0,
+        "price": 39.9,
+        "total": 79.8
+      },
+      {
+        "product_name": "Suco de Laranja Natural",
+        "quantity": 3.0,
+        "price": 14.0,
+        "total": 42.0
+      },
+      {
+        "product_name": "Chopp Pilsen 300ml",
+        "quantity": 4.0,
+        "price": 12.0,
+        "total": 48.0
+      }
+    ]
+  }
+}

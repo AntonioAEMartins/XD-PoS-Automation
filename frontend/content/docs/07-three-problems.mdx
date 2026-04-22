@@ -1,0 +1,45 @@
+---
+title: "Three problems"
+order: 7
+summary: "Cloud auth we couldn't see, PoS credentials we didn't have, and a query language nobody wrote down."
+---
+
+# Three problems
+
+Reading other people's packets is one thing. Generating your own is another. At the end of [chapter 06](/docs/06-packet-analysis) we could explain every byte of a captured session, but we could not start a session from zero. Three separate walls were in the way, and each one would have to come down independently.
+
+## Problem 1: cloud authentication
+
+Before any LAN-side traffic happens, the handheld authenticates against the vendor cloud and receives a session token. That token is the `TOKEN=<uuid>` field we saw on every LAN packet. Without it, the PDV answers nothing.
+
+The problem was that the authentication flow lives entirely on the HTTPS path we had already established we could not see. Our interception proxy's certificate was rejected by the pinned client; we watched the TLS handshake fail every time we tried to MITM the cloud side. We knew the handheld sent something — a username, a password, a device ID, probably all three — and received a token back. We could not see the request body, the response body, the shape of either, or the endpoint.
+
+The symptom was concrete: if we replayed a captured handheld session verbatim against the PDV, everything worked until the captured token expired. Then the PDV started replying `MESSAGEOK=false` with error tokens we had not yet catalogued, and we were locked out until we could persuade a live handheld to generate a fresh token for us. A tool that only works while a waiter is actively logged in nearby is not a tool.
+
+We needed to speak the cloud's login flow ourselves. That meant getting the login flow out of the client that knew it — the APK.
+
+## Problem 2: PoS credentials
+
+Assume, for a moment, we had a valid cloud-issued session token. Would that be enough?
+
+No. The first few messages on any LAN-side session looked like a handshake. Before any `GETBOARDCONTENT` or `POSTQUEUE`, the handheld exchanged a short burst with the PDV that included device identifiers, protocol version, and what looked like a second credential — something specific to this particular PDV-and-handheld pairing, not the cloud session token. {/* TODO: Antonio confirm — what exactly did the handshake include? A device GUID, a per-handheld key, a PDV-local nonce? Chapter 09 will show the decompile, but we should say here which specific credential was missing. */}
+
+The observable symptom: the TCP connection would accept, we would send our first envelope, and the PDV would silently not reply. No error message, no close, just nothing. We sat there for minutes. The PDV was waiting for a handshake we were not sending.
+
+Whatever that per-installation key was, the handheld had it and we did not. It was not on the wire in plaintext (or rather, it was, but derived or obfuscated enough that we could not tell which field was doing the work). Again, the answer had to come from the client — the handheld either hard-coded it, generated it, or fetched it once from the cloud and cached it.
+
+## Problem 3: the custom query language
+
+Even with both credentials in hand, we still did not know what to say. The envelope format — `VERB[NP]KEY[EQ]VALUE[NP]...[EOM]` — was easy. The vocabulary was not. We had collected a set of verbs from captures (`GETBOARDCONTENT`, `POSTQUEUE`, plus a handful of others) and some of the keys each one accepted, but we had no guarantee we had seen them all, and we had no idea what the valid domains of values were.
+
+The harder questions were semantic. Which verbs are stateful? Which keys are required versus optional? What happens if you send `PROTOCOLVERSION=2` instead of `1` — is it a new envelope format or is `1` all that exists? What are the error codes, and how does the PDV distinguish a malformed message from a well-formed message asking for something it cannot do? If we sent `POSTQUEUE` with a bad `QUEUE` payload, would we corrupt the table's state, or would the PDV reject it cleanly?
+
+That last one was the one that kept us conservative. We were going to test our understanding by sending live messages to a PDV running in a real restaurant. We could not afford to learn the error model by accidentally blanking a table at dinner service.
+
+We needed the spec. Nobody had written the spec. The one artifact in the world that encoded the spec was the code that spoke it — which, again, was the APK.
+
+## Three problems, one door
+
+Three problems — cloud login, the per-installation credential, the operation vocabulary with its error semantics — and one route to all three. The client had every answer we needed. If we could read the client, we could stop guessing.
+
+With TLS pinning blocking the cloud path and live testing blocking the semantic path, we were going to attack this from the other side. That meant the APK.

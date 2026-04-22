@@ -1,0 +1,93 @@
+---
+title: "What fell out of the APK"
+order: 9
+summary: "We stripped the handheld APK, converted its bytecode, and read what the obfuscator forgot to hide — delimiter bytes, a TCP target, and a message builder."
+---
+
+# What fell out of the APK
+
+## The tools
+
+The handheld APK was not hardened. It was a normal production Android build, signed by the vendor, shipped to devices we already had in our hands.
+
+We pulled the APK off the device, unpacked its resources with `apktool`, converted the Dalvik bytecode to JVM bytecode with `dex2jar`, and opened the resulting JAR in {/* TODO: Antonio confirm — JADX / JD-GUI / other decompiler */}. Three tools, each one of them boring, each one of them available as an `apt` or `brew` install.
+
+None of this is novel. The novelty is what the vendor left readable on the other end.
+
+## What was obfuscated
+
+The codebase had been through a ProGuard-style pass before it got packaged. Class names were collapsed to single letters — `a`, `b`, `c`. Method names the same. A call that used to read `AuthManager.buildLoginRequest(user, device)` now read `a.b(c, d)`. Calls chained through `e.f().g()` until it was easier to follow the decompile by stack trace than by name.
+
+String constants that mattered had been split into byte arrays assembled at runtime — `{0x4F, 0x50, 0x3D}` instead of the string `"OP="`. Whoever configured the obfuscator knew what they were doing.
+
+## What was not obfuscated
+
+The three things we needed were the three things the obfuscator could not hide.
+
+The first was the **delimiter bytes**. A byte array has to evaluate to the same value at runtime that the PDV expects on the wire, and the PDV was not going to be reconfigured. `0x1D` (group separator — our `[NP]`) and `0x04` (end of transmission — our `[EOM]`) appeared as raw integer literals at every call site that built a message. You cannot obfuscate a hex constant into something else.
+
+The second was the **TCP target**. The app opened a `java.net.Socket` against a LAN IP and a port number. The port number, whatever it was, had to be an integer literal in the compiled code. We found it on the first grep.
+
+The third was the **message-building method**. ProGuard renamed it, but it was the only method in the codebase that took a `Map<String,String>` of key-value pairs and returned a `byte[]` that started with `0x1D` and ended with `0x04`. One method, one shape, one purpose.
+
+{/* TODO: Antonio confirm — was there a hardcoded AES/DES key anywhere in the decompile, or did the handheld rely entirely on a cloud-issued session token? If a key was present, which constants pointed to it? */}
+
+## The synthetic view
+
+We are not publishing the real decompiled source. What follows is a synthetic snippet in the same shape — it highlights the same structure we actually found, with the vendor-specific symbols replaced.
+
+<ApkDecompile
+  title="Synthetic snippet from the handheld APK"
+  obfuscated={[
+    "public final class a {",
+    "  private static final byte[] NP = { 0x1D };",
+    "  private static final byte[] EQ = { 0x3D };",
+    "  private static final byte[] EOM = { 0x04 };",
+    "  private static final int PORT = 10401;",
+    "  private static final String HOST = \"192.168.0.23\";",
+    "",
+    "  public static byte[] b(String op, Map<String,String> kv) {",
+    "    ByteArrayOutputStream os = new ByteArrayOutputStream();",
+    "    os.write(NP);",
+    "    os.write((\"OP\").getBytes());",
+    "    os.write(EQ);",
+    "    os.write(op.getBytes());",
+    "    for (Map.Entry<String,String> e : kv.entrySet()) {",
+    "      os.write(NP);",
+    "      os.write(e.getKey().getBytes());",
+    "      os.write(EQ);",
+    "      os.write(e.getValue().getBytes());",
+    "    }",
+    "    os.write(EOM);",
+    "    return os.toByteArray();",
+    "  }",
+    "",
+    "  public static Socket c() throws IOException {",
+    "    return new Socket(HOST, PORT);",
+    "  }",
+    "}"
+  ]}
+  annotated={[
+    {
+      label: "Delimiter constants",
+      text: "0x1D (group separator, which we write as [NP]), 0x3D (the '=' character, which we write as [EQ]), and 0x04 (end of transmission, which we write as [EOM]). The obfuscator renamed the symbols, but the byte values had to survive to runtime or the PDV would not parse the message. That is why we could find them.",
+      highlightLines: [2, 3, 4]
+    },
+    {
+      label: "TCP target",
+      text: "A hardcoded LAN host and port. No DNS lookup, no service discovery, no TLS. The app expects the PDV to be sitting at this address on the restaurant network. Once we had the port number, we had the second half of the integration.",
+      highlightLines: [5, 6, 26]
+    },
+    {
+      label: "The message builder",
+      text: "The method we needed. It takes an opcode plus a map of KEY-value pairs, then writes them out with [NP] between fields, [EQ] between key and value, and [EOM] at the end. Every command the handheld sent went through something that had this shape.",
+      highlightLines: [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
+    }
+  ]}
+/>
+
+## What it meant
+
+Once the message builder was legible, the protocol was implicit. We knew the wire format because we had been staring at it in captured packets for weeks. The APK confirmed that the packets we had seen were not encrypted, not compressed, not tunneled through anything exotic — they were exactly what the handheld wrote to a `java.net.Socket` after running through a single builder.
+
+Now we knew the language. [Chapter 10](/docs/10-protocol) is what we built with it.

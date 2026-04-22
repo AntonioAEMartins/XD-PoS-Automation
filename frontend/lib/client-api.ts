@@ -2,8 +2,11 @@
 
 import useSWR, { type SWRConfiguration } from "swr";
 
-import { getTable, getTableMessage } from "@/lib/api";
-import type { TableContentResponse, WhatsAppResponse } from "@/lib/types";
+import { getTable, getTableMessage, getTables } from "@/lib/api";
+import type { TableContentResponse, TablesResponse, WhatsAppResponse } from "@/lib/types";
+
+// Every hook reads through `lib/api.ts`, which in turn drives the in-browser
+// PoS simulator from `lib/pos/`.
 
 const defaultConfig = {
   revalidateOnFocus: false,
@@ -29,6 +32,20 @@ export function useTableMessage(
     Number.isFinite(tableId) ? ["table-message", tableId] : null,
     () => getTableMessage(tableId),
     { ...defaultConfig, ...config }
+  );
+}
+
+export function useTablesList(
+  page: number,
+  pageSize: number,
+  config?: SWRConfiguration<TablesResponse>
+) {
+  return useSWR<TablesResponse>(
+    Number.isFinite(page) && Number.isFinite(pageSize) && page >= 1 && pageSize >= 1
+      ? ["tables-list", page, pageSize]
+      : null,
+    () => getTables({ page, pageSize }),
+    { ...defaultConfig, ...config, keepPreviousData: true }
   );
 }
 

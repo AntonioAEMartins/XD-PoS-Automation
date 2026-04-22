@@ -1,0 +1,88 @@
+---
+title: "What the packets said"
+order: 6
+summary: "Wireshark on the laptop, TLS pinning on the cloud side, plaintext TCP on the LAN side, and base64 JSON in a custom envelope."
+---
+
+# What the packets said
+
+## Wireshark, first
+
+The first thing we did once traffic was flowing through the laptop was open Wireshark on the Wi-Fi interface and watch the handheld at rest. A tablet sitting on a table does not look like much in a pcap — keepalives, mDNS chatter, NTP — but the moment a waiter tapped a table, two things lit up at once: an outbound TLS session heading to the vendor cloud, and a fresh TCP connection to the PDV on the LAN.
+
+Two destinations, two very different kinds of silence to break.
+
+## The cloud: TLS pinning
+
+The outbound conversation was HTTPS to a vendor domain on port 443, with certificate pinning. Our laptop's proxy presented a certificate signed by our own CA, the handheld's app checked the pin, the handheld closed the connection. We saw the TCP handshake, the ClientHello, the proxy's certificate rejected, and then `FIN`.
+
+What we learned from that, before anything else, was that the cloud path was going to cost us. Decrypting pinned traffic on a production Android app we do not own means either patching the APK to disable the pin check (possible, invasive, and a rabbit hole) or using a debug build of the app (which we did not have). On an unrooted, commercially-deployed handheld, neither was available. {/* TODO: Antonio confirm — did we attempt APK patching at this stage, or decide immediately to attack the client side? Chapter 07 and 08 assume we deferred it. */}
+
+The cloud path went on the "later" list. Which meant, for now, we had one side of the conversation to work with: the LAN side.
+
+## The LAN: plaintext TCP on an arbitrary port
+
+The LAN-side connection was not TLS. It was not TLS at all. The handheld opened a plain TCP socket to the PDV's local IP on a non-standard port {/* TODO: Antonio confirm — port 10401 per the MITM diagram in chapter 05, or is the real port different? */} and started talking immediately. No handshake, no negotiated cipher, nothing. Just ASCII and base64 on the wire.
+
+The framing was a custom envelope. Each message was a stream of `KEY[EQ]VALUE` pairs separated by `[NP]` tokens, terminated with `[EOM]`. Values that were not printable ASCII — structured data, lists of order lines, anything shaped like an object — were base64-encoded JSON, stuffed into a single field on the envelope.
+
+The example below is one of the first captures where we understood what we were looking at. A waiter opens table 12; the handheld sends `GETBOARDCONTENT`; the PDV replies with the table's state, items, total. The hex has been trimmed in the middle for readability — the full dump is the same pattern repeated.
+
+<InlineWireViewer
+  title="GETBOARDCONTENT on table 12"
+  viewerId="ch06-getboardcontent"
+  trace={{
+    request: {
+      raw: "GETBOARDCONTENT[NP]BOARDID[EQ]12[NP]TYPE[EQ]1[NP]MESSAGEID[EQ]c12d4b8a-1f29-4a7c-9e6b-4fa02c813e12[NP]MESSAGETYPE[EQ]XDPeople.Entities.GetBoardInfoMessage[NP]TOKEN[EQ]7a3f9c2e-1d4b-4f6a-9b8e-2c5d8f1a0b7c[NP]USERID[EQ]1[NP]PROTOCOLVERSION[EQ]1[EOM]",
+      ascii: "GETBOARDCONTENT • BOARDID=12 • TYPE=1 • MESSAGEID=c12d4b8a-...e12 • MESSAGETYPE=<vendor>.GetBoardInfoMessage • TOKEN=7a3f9c2e-...b7c • USERID=1 • PROTOCOLVERSION=1 ■",
+      hex: "474554424f415244434f4e54454e545b4e505d424f41524449445b45515d31325b4e505d545950455b45515d315b4e505d4d45535341474549445b45515d63313264346238612d316632392d346137632d396536622d34 ... 76455253494f4e5b45515d315b454f4d5d"
+    },
+    response: {
+      raw: "GETBOARDCONTENTRESULT[NP]MESSAGEID[EQ]c12d4b8a-1f29-4a7c-9e6b-4fa02c813e12[NP]BOARDINFO[EQ]eyJpZCI6IDEyLCAic3RhdHVzIjogMSwgInRhYmxlTG9jYXRpb24iOiAiU2Fsw6NvIFByaW5jaXBhbCIsICJjb250ZW50IjogWy4uLl0sICJ0b3RhbCI6IDQwMy44LCAiZ2xvYmFsRGlzY291bnQiOiAwLjB9[NP]MESSAGEOK[EQ]true[EOM]",
+      ascii: "GETBOARDCONTENTRESULT • MESSAGEID=c12d4b8a-...e12 • BOARDINFO=<base64 JSON, 812 bytes> • MESSAGEOK=true ■",
+      hex: "474554424f415244434f4e54454e54524553554c545b4e505d4d45535341474549445b45515d63313264346238612d316632392d346137632d396536622d34 ... 4553534147454f4b5b45515d747275655b454f4d5d"
+    },
+    payloads: {
+      response_boardinfo: {
+        id: 12,
+        status: 1,
+        tableLocation: "Salão Principal",
+        content: [
+          { itemId: "2003", itemName: "Fraldinha Grelhada", quantity: 2, price: 72.5, total: 145.0 },
+          { itemId: "2013", itemName: "Moqueca de Peixe", quantity: 1, price: 89.0, total: 89.0 },
+          { itemId: "2004", itemName: "Asinha de Frango", quantity: 2, price: 39.9, total: 79.8 },
+          { itemId: "3004", itemName: "Suco de Laranja Natural", quantity: 3, price: 14.0, total: 42.0 },
+          { itemId: "3001", itemName: "Chopp Pilsen 300ml", quantity: 4, price: 12.0, total: 48.0 }
+        ],
+        total: 403.8,
+        globalDiscount: 0.0
+      }
+    },
+    posMessage: "GETBOARDCONTENT → table 12 → 5 items, R$ 403,80"
+  }}
+/>
+
+The hex columns are trimmed in the middle (`...`) to fit the page — the real packets are one continuous blob and look exactly the same across the cut.
+
+## Reading the envelope
+
+Walking left to right through the request:
+
+- **`GETBOARDCONTENT`** — the verb. The first token on the wire, before any `[NP]`, names the operation. The PDV switches on this.
+- **`BOARDID=12`** — which table.
+- **`TYPE=1`** — a flavor of the request. We spent a while guessing what the numeric types meant; the APK eventually told us ([chapter 09](/docs/09-apk-decompile)).
+- **`MESSAGEID=<uuid>`** — a client-generated correlation token. The response echoes it back.
+- **`MESSAGETYPE=<vendor>.GetBoardInfoMessage`** — a .NET-flavored type name. The PDV is a Windows binary; this fingerprint was our first hint that serialization was symmetric between client and server.
+- **`TOKEN=<uuid>`** — the session token. The one we did not yet know how to obtain.
+- **`USERID=1`**, **`PROTOCOLVERSION=1`** — the employee carrying the handheld and the wire-format version.
+- **`[EOM]`** — end of message. The PDV waits for this before processing.
+
+The response follows the same envelope. `MESSAGEID` echoes. `MESSAGEOK=true` reports success. The data the waiter actually cares about — the table's items, total, lock state — is packed into a single `BOARDINFO` field as base64. Decode that field and you get clean JSON: `id`, `status`, `tableLocation`, `content: []` with line items, `total`, `globalDiscount`.
+
+That was the shape for everything. Different verb, same envelope, the interesting payload in one base64 field. Write-path messages like `POSTQUEUE` (used to pre-bill or close a table) follow the exact same structure; the JSON inside just describes an action instead of a snapshot.
+
+## What we had, what we were still missing
+
+By the end of the packet-analysis phase we could read every LAN-side message the handheld sent and every reply the PDV sent back. We knew the verbs by name. We could decode the JSON payloads byte-for-byte. Given a captured request we could explain every field in it.
+
+What we could not yet do was speak. And the reason is in the [next chapter](/docs/07-three-problems): three things stood between a passive packet reader and something that could open a fresh session from scratch — cloud authentication we could not see, PoS credentials we did not have, and a vocabulary of operations we had not inventoried.

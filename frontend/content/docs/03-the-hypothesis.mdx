@@ -1,0 +1,31 @@
+---
+title: "The hypothesis"
+order: 3
+summary: "Can we remove ourselves from the loop? The answer turned on whether we could talk to the PoS the way the waiter's handheld did."
+---
+
+# The hypothesis
+
+## The question
+
+We had a product that worked, provided two of us were physically in the room. The question was whether we could remove ourselves from the loop without losing the one thing that got us in the door — the PoS staying correct.
+
+*The loop* was narrow. It was one action, repeated per table, performed by a human at the cashier terminal: mark this table as paying, later mark it as closed. Everything else — the WhatsApp conversation, the bill rendering, the Pix link, the payment confirmation — was code we controlled.
+
+If we could make that one action happen automatically, the product was shippable.
+
+## The constraint
+
+The PoS vendor did not publish an API. We asked. {/* TODO: Antonio confirm — did you actually contact the vendor directly, or only go through the restaurant? What was said? */} There was no developer portal, no webhook, no documented integration surface, nothing. The official answer, as best we could tell, was that the vendor's surface area was exactly the products the vendor shipped: the desktop terminal at the cashier, and the Android handheld in the waiter's apron. Any third party who wanted to participate had to go through one of those two doorways.
+
+The waiter's handheld could do the thing we wanted. It could mark a table as paying. It could mark a table as closed. It did so every night, dozens of times a shift, in that restaurant and every other restaurant running this PoS.
+
+Whatever it was doing, it was doing it against the same PoS server we had permission to change tables on. So whatever protocol it was speaking, it was speaking it over the restaurant's local network, on a machine we were standing next to, between two devices we had physical access to.
+
+## The hypothesis
+
+The hypothesis was simple. If we could watch the Android handheld talk to the PoS and figure out what it was saying, we could say the same thing ourselves. Our backend would send the same bytes the handheld would have sent, the PoS would accept them because the PoS had no way to tell us apart from the handheld, and the table status would change. The waiter's screen would show *paying*. Then *closed*. And none of us would have to walk to the cashier.
+
+That is reverse-engineering in the plain sense of the word. Not adversarial — the restaurant was our customer, the vendor's product was running on the restaurant's hardware, we had the owner's consent to integrate. Just nobody had written down how.
+
+The rest of this document is how we found out.

@@ -20,7 +20,7 @@ export default function TableDetailPage({ params }: TableDetailPageProps) {
       <header className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
         <div className="flex items-center gap-3">
           <Link
-            href="/"
+            href="/demo"
             className="inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-medium text-primary transition hover:bg-primary/5"
           >
             <ArrowLeft className="h-4 w-4" />

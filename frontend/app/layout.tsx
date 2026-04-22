@@ -1,25 +1,26 @@
-import type { Metadata } from "next";
-import { JetBrains_Mono, Plus_Jakarta_Sans } from "next/font/google";
+import type { Metadata } from "next/types";
+import { GeistSans } from "geist/font/sans";
+import { GeistMono } from "geist/font/mono";
+import { Fraunces } from "next/font/google";
 import NextTopLoader from "nextjs-toploader";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 
-const jakarta = Plus_Jakarta_Sans({
+const fraunces = Fraunces({
   subsets: ["latin"],
-  variable: "--font-jakarta",
-  display: "swap"
-});
-
-const jetBrains = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
+  style: ["italic"],
+  weight: ["500"],
+  variable: "--font-fraunces",
   display: "swap"
 });
 
 export const metadata: Metadata = {
-  title: "Frontend Debug Console",
+  title: {
+    default: "XD-PoS — Reverse-engineering a proprietary PoS",
+    template: "%s · XD-PoS"
+  },
   description:
-    "Trace PoS TCP payloads, inspect tables, and drive prebill/close actions."
+    "A case study in reverse-engineering a proprietary restaurant PoS from the outside in: MITM capture, APK decompile, and a FastAPI agent that speaks its protocol."
 };
 
 export default function RootLayout({
@@ -28,18 +29,20 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={`${jakarta.variable} ${jetBrains.variable}`}>
+    <html
+      lang="en"
+      className={`${GeistSans.variable} ${GeistMono.variable} ${fraunces.variable}`}
+    >
       <body className="antialiased">
-        <div className="min-h-screen grid-accent">
-          <NextTopLoader
-            color="hsl(var(--primary))"
-            showSpinner={false}
-            crawlSpeed={120}
-            height={3}
-          />
-          {children}
-          <Toaster />
-        </div>
+        <NextTopLoader
+          color="rgba(255,255,255,0.9)"
+          showSpinner={false}
+          crawlSpeed={120}
+          height={2}
+        />
+        <div className="aurora" aria-hidden />
+        <div className="relative z-10 min-h-screen">{children}</div>
+        <Toaster />
       </body>
     </html>
   );

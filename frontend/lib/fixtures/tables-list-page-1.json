@@ -1,0 +1,235 @@
+{
+  "tables": [
+    {
+      "id": 1,
+      "name": "1",
+      "status": 1,
+      "lockDescription": null,
+      "inactive": false,
+      "freeTable": false,
+      "initialUser": 6
+    },
+    {
+      "id": 2,
+      "name": "2",
+      "status": 2,
+      "lockDescription": null,
+      "inactive": false,
+      "freeTable": false,
+      "initialUser": 6
+    },
+    {
+      "id": 3,
+      "name": "3",
+      "status": 0,
+      "lockDescription": null,
+      "inactive": false,
+      "freeTable": true,
+      "initialUser": 0
+    },
+    {
+      "id": 4,
+      "name": "4",
+      "status": 1,
+      "lockDescription": null,
+      "inactive": false,
+      "freeTable": false,
+      "initialUser": 11
+    },
+    {
+      "id": 5,
+      "name": "5",
+      "status": 1,
+      "lockDescription": null,
+      "inactive": false,
+      "freeTable": false,
+      "initialUser": 3
+    },
+    {
+      "id": 6,
+      "name": "6",
+      "status": 0,
+      "lockDescription": null,
+      "inactive": false,
+      "freeTable": true,
+      "initialUser": 0
+    },
+    {
+      "id": 7,
+      "name": "7",
+      "status": 2,
+      "lockDescription": null,
+      "inactive": false,
+      "freeTable": false,
+      "initialUser": 8
+    },
+    {
+      "id": 8,
+      "name": "8",
+      "status": 1,
+      "lockDescription": null,
+      "inactive": false,
+      "freeTable": false,
+      "initialUser": 14
+    },
+    {
+      "id": 9,
+      "name": "9",
+      "status": 0,
+      "lockDescription": null,
+      "inactive": false,
+      "freeTable": true,
+      "initialUser": 0
+    },
+    {
+      "id": 10,
+      "name": "10",
+      "status": 1,
+      "lockDescription": null,
+      "inactive": false,
+      "freeTable": false,
+      "initialUser": 6
+    }
+  ],
+  "summary": {
+    "total": 12,
+    "open": 6,
+    "closing": 3,
+    "free": 3
+  },
+  "pagination": {
+    "page": 1,
+    "page_size": 10,
+    "total_items": 12,
+    "total_pages": 2,
+    "has_previous": false,
+    "has_next": true,
+    "start_index": 1,
+    "end_index": 10
+  },
+  "wire_trace": {
+    "request": {
+      "raw": "GETDATALIST[NP]OBJECTTYPE[EQ]XDPeople.Entities.MobileBoardStatus[NP]PART[EQ]0[NP]LIMIT[EQ]5000[NP]MESSAGEID[EQ]3a9e7b8c-f12d-4e5a-a7c3-90b145f26e82[NP]MESSAGETYPE[EQ]XDPeople.Entities.GetDataListMessage[NP]TOKEN[EQ]7a3f9c2e-1d4b-4f6a-9b8e-2c5d8f1a0b7c[NP]USERID[EQ]1[NP]PROTOCOLVERSION[EQ]1[EOM]",
+      "ascii": "GETDATALIST[NP]OBJECTTYPE[EQ]XDPeople.Entities.MobileBoardStatus[NP]PART[EQ]0[NP]LIMIT[EQ]5000[NP]MESSAGEID[EQ]3a9e7b8c-f12d-4e5a-a7c3-90b145f26e82[NP]MESSAGETYPE[EQ]XDPeople.Entities.GetDataListMessage[NP]TOKEN[EQ]7a3f9c2e-1d4b-4f6a-9b8e-2c5d8f1a0b7c[NP]USERID[EQ]1[NP]PROTOCOLVERSION[EQ]1[EOM]",
+      "hex": "474554444154414c4953545b4e505d4f424a454354545950455b45515d584450656f706c652e456e7469746965732e4d6f62696c65426f6172645374617475735b4e505d504152545b45515d305b4e505d4c494d49545b45515d353030305b4e505d4d45535341474549445b45515d33613965376238632d663132642d346535612d613763332d3930623134356632366538325b4e505d4d455353414745545950455b45515d584450656f706c652e456e7469746965732e476574446174614c6973744d6573736167655b4e505d544f4b454e5b45515d37613366396332652d316434622d346636612d396238652d3263356438663161306237635b4e505d5553455249445b45515d315b4e505d50524f544f434f4c56455253494f4e5b45515d315b454f4d5d"
+    },
+    "response": {
+      "raw": "GETDATALISTRESULT[NP]MESSAGEID[EQ]3a9e7b8c-f12d-4e5a-a7c3-90b145f26e82[NP]OBJECT[EQ]W3siaWQiOiAxLCAibmFtZSI6ICIxIiwgInN0YXR1cyI6IDEsICJsb2NrRGVzY3JpcHRpb24iOiBudWxsLCAiaW5hY3RpdmUiOiBmYWxzZSwgImZyZWVUYWJsZSI6IGZhbHNlLCAiaW5pdGlhbFVzZXIiOiA2fSwgeyJpZCI6IDIsICJuYW1lIjogIjIiLCAic3RhdHVzIjogMiwgImxvY2tEZXNjcmlwdGlvbiI6IG51bGwsICJpbmFjdGl2ZSI6IGZhbHNlLCAiZnJlZVRhYmxlIjogZmFsc2UsICJpbml0aWFsVXNlciI6IDZ9LCB7ImlkIjogMywgIm5hbWUiOiAiMyIsICJzdGF0dXMiOiAwLCAibG9ja0Rlc2NyaXB0aW9uIjogbnVsbCwgImluYWN0aXZlIjogZmFsc2UsICJmcmVlVGFibGUiOiB0cnVlLCAiaW5pdGlhbFVzZXIiOiAwfSwgeyJpZCI6IDQsICJuYW1lIjogIjQiLCAic3RhdHVzIjogMSwgImxvY2tEZXNjcmlwdGlvbiI6IG51bGwsICJpbmFjdGl2ZSI6IGZhbHNlLCAiZnJlZVRhYmxlIjogZmFsc2UsICJpbml0aWFsVXNlciI6IDExfSwgeyJpZCI6IDUsICJuYW1lIjogIjUiLCAic3RhdHVzIjogMSwgImxvY2tEZXNjcmlwdGlvbiI6IG51bGwsICJpbmFjdGl2ZSI6IGZhbHNlLCAiZnJlZVRhYmxlIjogZmFsc2UsICJpbml0aWFsVXNlciI6IDN9LCB7ImlkIjogNiwgIm5hbWUiOiAiNiIsICJzdGF0dXMiOiAwLCAibG9ja0Rlc2NyaXB0aW9uIjogbnVsbCwgImluYWN0aXZlIjogZmFsc2UsICJmcmVlVGFibGUiOiB0cnVlLCAiaW5pdGlhbFVzZXIiOiAwfSwgeyJpZCI6IDcsICJuYW1lIjogIjciLCAic3RhdHVzIjogMiwgImxvY2tEZXNjcmlwdGlvbiI6IG51bGwsICJpbmFjdGl2ZSI6IGZhbHNlLCAiZnJlZVRhYmxlIjogZmFsc2UsICJpbml0aWFsVXNlciI6IDh9LCB7ImlkIjogOCwgIm5hbWUiOiAiOCIsICJzdGF0dXMiOiAxLCAibG9ja0Rlc2NyaXB0aW9uIjogbnVsbCwgImluYWN0aXZlIjogZmFsc2UsICJmcmVlVGFibGUiOiBmYWxzZSwgImluaXRpYWxVc2VyIjogMTR9LCB7ImlkIjogOSwgIm5hbWUiOiAiOSIsICJzdGF0dXMiOiAwLCAibG9ja0Rlc2NyaXB0aW9uIjogbnVsbCwgImluYWN0aXZlIjogZmFsc2UsICJmcmVlVGFibGUiOiB0cnVlLCAiaW5pdGlhbFVzZXIiOiAwfSwgeyJpZCI6IDEwLCAibmFtZSI6ICIxMCIsICJzdGF0dXMiOiAxLCAibG9ja0Rlc2NyaXB0aW9uIjogbnVsbCwgImluYWN0aXZlIjogZmFsc2UsICJmcmVlVGFibGUiOiBmYWxzZSwgImluaXRpYWxVc2VyIjogNn0sIHsiaWQiOiAxMSwgIm5hbWUiOiAiMTEiLCAic3RhdHVzIjogMiwgImxvY2tEZXNjcmlwdGlvbiI6IG51bGwsICJpbmFjdGl2ZSI6IGZhbHNlLCAiZnJlZVRhYmxlIjogZmFsc2UsICJpbml0aWFsVXNlciI6IDJ9LCB7ImlkIjogMTIsICJuYW1lIjogIjEyIiwgInN0YXR1cyI6IDEsICJsb2NrRGVzY3JpcHRpb24iOiBudWxsLCAiaW5hY3RpdmUiOiBmYWxzZSwgImZyZWVUYWJsZSI6IGZhbHNlLCAiaW5pdGlhbFVzZXIiOiAxOX1d[NP]MESSAGEOK[EQ]true[EOM]",
+      "ascii": "GETDATALISTRESULT[NP]MESSAGEID[EQ]3a9e7b8c-f12d-4e5a-a7c3-90b145f26e82[NP]OBJECT[EQ]W3siaWQiOiAxLCAibmFtZSI6ICIxIiwgInN0YXR1cyI6IDEsICJsb2NrRGVzY3JpcHRpb24iOiBudWxsLCAiaW5hY3RpdmUiOiBmYWxzZSwgImZyZWVUYWJsZSI6IGZhbHNlLCAiaW5pdGlhbFVzZXIiOiA2fSwgeyJpZCI6IDIsICJuYW1lIjogIjIiLCAic3RhdHVzIjogMiwgImxvY2tEZXNjcmlwdGlvbiI6IG51bGwsICJpbmFjdGl2ZSI6IGZhbHNlLCAiZnJlZVRhYmxlIjogZmFsc2UsICJpbml0aWFsVXNlciI6IDZ9LCB7ImlkIjogMywgIm5hbWUiOiAiMyIsICJzdGF0dXMiOiAwLCAibG9ja0Rlc2NyaXB0aW9uIjogbnVsbCwgImluYWN0aXZlIjogZmFsc2UsICJmcmVlVGFibGUiOiB0cnVlLCAiaW5pdGlhbFVzZXIiOiAwfSwgeyJpZCI6IDQsICJuYW1lIjogIjQiLCAic3RhdHVzIjogMSwgImxvY2tEZXNjcmlwdGlvbiI6IG51bGwsICJpbmFjdGl2ZSI6IGZhbHNlLCAiZnJlZVRhYmxlIjogZmFsc2UsICJpbml0aWFsVXNlciI6IDExfSwgeyJpZCI6IDUsICJuYW1lIjogIjUiLCAic3RhdHVzIjogMSwgImxvY2tEZXNjcmlwdGlvbiI6IG51bGwsICJpbmFjdGl2ZSI6IGZhbHNlLCAiZnJlZVRhYmxlIjogZmFsc2UsICJpbml0aWFsVXNlciI6IDN9LCB7ImlkIjogNiwgIm5hbWUiOiAiNiIsICJzdGF0dXMiOiAwLCAibG9ja0Rlc2NyaXB0aW9uIjogbnVsbCwgImluYWN0aXZlIjogZmFsc2UsICJmcmVlVGFibGUiOiB0cnVlLCAiaW5pdGlhbFVzZXIiOiAwfSwgeyJpZCI6IDcsICJuYW1lIjogIjciLCAic3RhdHVzIjogMiwgImxvY2tEZXNjcmlwdGlvbiI6IG51bGwsICJpbmFjdGl2ZSI6IGZhbHNlLCAiZnJlZVRhYmxlIjogZmFsc2UsICJpbml0aWFsVXNlciI6IDh9LCB7ImlkIjogOCwgIm5hbWUiOiAiOCIsICJzdGF0dXMiOiAxLCAibG9ja0Rlc2NyaXB0aW9uIjogbnVsbCwgImluYWN0aXZlIjogZmFsc2UsICJmcmVlVGFibGUiOiBmYWxzZSwgImluaXRpYWxVc2VyIjogMTR9LCB7ImlkIjogOSwgIm5hbWUiOiAiOSIsICJzdGF0dXMiOiAwLCAibG9ja0Rlc2NyaXB0aW9uIjogbnVsbCwgImluYWN0aXZlIjogZmFsc2UsICJmcmVlVGFibGUiOiB0cnVlLCAiaW5pdGlhbFVzZXIiOiAwfSwgeyJpZCI6IDEwLCAibmFtZSI6ICIxMCIsICJzdGF0dXMiOiAxLCAibG9ja0Rlc2NyaXB0aW9uIjogbnVsbCwgImluYWN0aXZlIjogZmFsc2UsICJmcmVlVGFibGUiOiBmYWxzZSwgImluaXRpYWxVc2VyIjogNn0sIHsiaWQiOiAxMSwgIm5hbWUiOiAiMTEiLCAic3RhdHVzIjogMiwgImxvY2tEZXNjcmlwdGlvbiI6IG51bGwsICJpbmFjdGl2ZSI6IGZhbHNlLCAiZnJlZVRhYmxlIjogZmFsc2UsICJpbml0aWFsVXNlciI6IDJ9LCB7ImlkIjogMTIsICJuYW1lIjogIjEyIiwgInN0YXR1cyI6IDEsICJsb2NrRGVzY3JpcHRpb24iOiBudWxsLCAiaW5hY3RpdmUiOiBmYWxzZSwgImZyZWVUYWJsZSI6IGZhbHNlLCAiaW5pdGlhbFVzZXIiOiAxOX1d[NP]MESSAGEOK[EQ]true[EOM]",
+      "hex": "474554444154414c495354524553554c545b4e505d4d45535341474549445b45515d33613965376238632d663132642d346535612d613763332d3930623134356632366538325b4e505d4f424a4543545b45515d57337369615751694f6941784c434169626d46745a5349364943497849697767496e4e3059585231637949364944457349434a7362324e725247567a59334a7063485270623234694f694275645778734c4341696157356859335270646d55694f69426d5957787a5a537767496d5a795a57565559574a735a53493649475a6862484e6c4c4341696157357064476c686246567a5a5849694f6941326653776765794a705a4349364944497349434a755957316c496a6f67496a49694c434169633352686448567a496a6f674d697767496d7876593274455a584e6a636d6c7764476c7662694936494735316247777349434a70626d466a64476c325a53493649475a6862484e6c4c4341695a6e4a6c5a565268596d786c496a6f675a6d46736332557349434a70626d6c306157467356584e6c6369493649445a394c434237496d6c6b496a6f674d797767496d3568625755694f6941694d79497349434a7a6447463064584d694f6941774c4341696247396a6130526c63324e796158423061573975496a6f67626e567362437767496d6c7559574e3061585a6c496a6f675a6d46736332557349434a6d636d566c56474669624755694f694230636e566c4c4341696157357064476c686246567a5a5849694f6941776653776765794a705a4349364944517349434a755957316c496a6f67496a51694c434169633352686448567a496a6f674d537767496d7876593274455a584e6a636d6c7764476c7662694936494735316247777349434a70626d466a64476c325a53493649475a6862484e6c4c4341695a6e4a6c5a565268596d786c496a6f675a6d46736332557349434a70626d6c306157467356584e6c63694936494445786653776765794a705a4349364944557349434a755957316c496a6f67496a55694c434169633352686448567a496a6f674d537767496d7876593274455a584e6a636d6c7764476c7662694936494735316247777349434a70626d466a64476c325a53493649475a6862484e6c4c4341695a6e4a6c5a565268596d786c496a6f675a6d46736332557349434a70626d6c306157467356584e6c6369493649444e394c434237496d6c6b496a6f674e697767496d3568625755694f6941694e69497349434a7a6447463064584d694f6941774c4341696247396a6130526c63324e796158423061573975496a6f67626e567362437767496d6c7559574e3061585a6c496a6f675a6d46736332557349434a6d636d566c56474669624755694f694230636e566c4c4341696157357064476c686246567a5a5849694f6941776653776765794a705a4349364944637349434a755957316c496a6f67496a63694c434169633352686448567a496a6f674d697767496d7876593274455a584e6a636d6c7764476c7662694936494735316247777349434a70626d466a64476c325a53493649475a6862484e6c4c4341695a6e4a6c5a565268596d786c496a6f675a6d46736332557349434a70626d6c306157467356584e6c63694936494468394c434237496d6c6b496a6f674f437767496d3568625755694f6941694f43497349434a7a6447463064584d694f6941784c4341696247396a6130526c63324e796158423061573975496a6f67626e567362437767496d6c7559574e3061585a6c496a6f675a6d46736332557349434a6d636d566c56474669624755694f69426d5957787a5a537767496d6c75615852705957785663325679496a6f674d5452394c434237496d6c6b496a6f674f537767496d3568625755694f6941694f53497349434a7a6447463064584d694f6941774c4341696247396a6130526c63324e796158423061573975496a6f67626e567362437767496d6c7559574e3061585a6c496a6f675a6d46736332557349434a6d636d566c56474669624755694f694230636e566c4c4341696157357064476c686246567a5a5849694f6941776653776765794a705a434936494445774c434169626d46745a534936494349784d43497349434a7a6447463064584d694f6941784c4341696247396a6130526c63324e796158423061573975496a6f67626e567362437767496d6c7559574e3061585a6c496a6f675a6d46736332557349434a6d636d566c56474669624755694f69426d5957787a5a537767496d6c75615852705957785663325679496a6f674e6e307349487369615751694f6941784d537767496d3568625755694f6941694d5445694c434169633352686448567a496a6f674d697767496d7876593274455a584e6a636d6c7764476c7662694936494735316247777349434a70626d466a64476c325a53493649475a6862484e6c4c4341695a6e4a6c5a565268596d786c496a6f675a6d46736332557349434a70626d6c306157467356584e6c6369493649444a394c434237496d6c6b496a6f674d54497349434a755957316c496a6f67496a457949697767496e4e3059585231637949364944457349434a7362324e725247567a59334a7063485270623234694f694275645778734c4341696157356859335270646d55694f69426d5957787a5a537767496d5a795a57565559574a735a53493649475a6862484e6c4c4341696157357064476c686246567a5a5849694f6941784f5831645b4e505d4d4553534147454f4b5b45515d747275655b454f4d5d"
+    },
+    "payloads": {
+      "response_object": [
+        {
+          "id": 1,
+          "name": "1",
+          "status": 1,
+          "lockDescription": null,
+          "inactive": false,
+          "freeTable": false,
+          "initialUser": 6
+        },
+        {
+          "id": 2,
+          "name": "2",
+          "status": 2,
+          "lockDescription": null,
+          "inactive": false,
+          "freeTable": false,
+          "initialUser": 6
+        },
+        {
+          "id": 3,
+          "name": "3",
+          "status": 0,
+          "lockDescription": null,
+          "inactive": false,
+          "freeTable": true,
+          "initialUser": 0
+        },
+        {
+          "id": 4,
+          "name": "4",
+          "status": 1,
+          "lockDescription": null,
+          "inactive": false,
+          "freeTable": false,
+          "initialUser": 11
+        },
+        {
+          "id": 5,
+          "name": "5",
+          "status": 1,
+          "lockDescription": null,
+          "inactive": false,
+          "freeTable": false,
+          "initialUser": 3
+        },
+        {
+          "id": 6,
+          "name": "6",
+          "status": 0,
+          "lockDescription": null,
+          "inactive": false,
+          "freeTable": true,
+          "initialUser": 0
+        },
+        {
+          "id": 7,
+          "name": "7",
+          "status": 2,
+          "lockDescription": null,
+          "inactive": false,
+          "freeTable": false,
+          "initialUser": 8
+        },
+        {
+          "id": 8,
+          "name": "8",
+          "status": 1,
+          "lockDescription": null,
+          "inactive": false,
+          "freeTable": false,
+          "initialUser": 14
+        },
+        {
+          "id": 9,
+          "name": "9",
+          "status": 0,
+          "lockDescription": null,
+          "inactive": false,
+          "freeTable": true,
+          "initialUser": 0
+        },
+        {
+          "id": 10,
+          "name": "10",
+          "status": 1,
+          "lockDescription": null,
+          "inactive": false,
+          "freeTable": false,
+          "initialUser": 6
+        },
+        {
+          "id": 11,
+          "name": "11",
+          "status": 2,
+          "lockDescription": null,
+          "inactive": false,
+          "freeTable": false,
+          "initialUser": 2
+        },
+        {
+          "id": 12,
+          "name": "12",
+          "status": 1,
+          "lockDescription": null,
+          "inactive": false,
+          "freeTable": false,
+          "initialUser": 19
+        }
+      ]
+    },
+    "posMessage": "GETDATALIST[NP]OBJECTTYPE[EQ]XDPeople.Entities.MobileBoardStatus[NP]PART[EQ]0[NP]LIMIT[EQ]5000[NP]MESSAGEID[EQ]3a9e7b8c-f12d-4e5a-a7c3-90b145f26e82[NP]MESSAGETYPE[EQ]XDPeople.Entities.GetDataListMessage[NP]TOKEN[EQ]7a3f9c2e-1d4b-4f6a-9b8e-2c5d8f1a0b7c[NP]USERID[EQ]1[NP]PROTOCOLVERSION[EQ]1[EOM]"
+  }
+}

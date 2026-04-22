@@ -138,8 +138,8 @@ export function WireViewer({
           </ToggleGroup>
         </div>
 
-        <div className="rounded-lg border bg-slate-950/90 p-3 text-xs text-slate-50 shadow-inner">
-          <pre className="mono whitespace-pre-wrap break-words leading-6">
+        <div className="max-h-[28rem] overflow-auto rounded-lg border bg-slate-950/90 p-3 text-xs text-slate-50 shadow-inner">
+          <pre className="mono whitespace-pre-wrap break-all leading-6">
             {formattedContent}
           </pre>
         </div>

@@ -1,0 +1,38 @@
+---
+title: "The environment"
+order: 4
+summary: "The restaurant LAN, the PoS server, the Android handhelds, the vendor cloud — and what we could actually see."
+---
+
+# The environment
+
+## What was in the room
+
+The restaurant we had access to looked, from a networking perspective, like any other small business running a legacy PoS.
+
+There was a wireless router with a single flat LAN — roughly a `192.168.x.x` subnet, no VLANs, no guest isolation. Everything that mattered sat on it.
+
+On the LAN was the **PDV** — the PoS server — a Windows machine at the cashier running the vendor's terminal software. This is the source of truth for every table, every item, every bill.
+
+Also on the LAN were the **Android handhelds** the waiters carried: vendor-signed hardware running a vendor-built app, joined to the shop Wi-Fi, used all night to open tables, add items, and — the one that mattered to us — move tables through their status transitions. Each handheld had a couple of certificates baked into it, which is how it proved to everyone involved that it was a handheld and not something pretending to be one.
+
+Off the LAN, reachable over the restaurant's internet connection, was the **vendor cloud**. The handhelds talked to it when they first started up, presumably to authenticate, and occasionally after that. The PDV talked to it too, but less chattily. {/* TODO: Antonio confirm — was there evidence the cloud did anything beyond auth/licensing, e.g. menu sync, config push? */}
+
+## What we could see
+
+Physical access was the important part. We had the Wi-Fi password. We had one of the Android handhelds — physically in hand, powered on, logged in. We had the owner's permission to capture network traffic on the restaurant's LAN during business hours, with the explicit caveat that we were not to touch the PDV itself. {/* TODO: Antonio confirm — was the "don't touch the PDV" framing explicit from the owner, and did you ever need to walk that back? */}
+
+What we did not have was any vendor documentation, any source code for the handheld app, any credentials for the vendor cloud, or any way to ask the PoS *what tables do you have* via a sanctioned channel.
+
+## The mystery box
+
+The useful way to think about it was a diagram we did not draw at the time but should have.
+
+- **Handheld → PDV**, over TCP, on the LAN. This is the traffic the waiter app generates every time it does anything useful — open a table, add an item, mark a table as paying. Whatever it sends, the PDV acts on.
+- **Handheld → vendor cloud**, over HTTPS, over the restaurant's internet connection. This is where the handheld proves who it is. Whatever tokens or keys come back from this conversation are what the handheld uses to be taken seriously by the PDV.
+
+The product we wanted to build lived at the first arrow. If we could compose the right bytes and send them to the PDV's TCP port, the PDV would flip a table's status and the waiter's screen would update. Getting there meant understanding the first arrow — and the first arrow probably required credentials that only came out of the second one.
+
+Two places to listen. One handheld in our pocket. A laptop on the same Wi-Fi as everything else.
+
+So how do you listen to something you can't see?

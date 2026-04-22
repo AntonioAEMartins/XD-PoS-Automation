@@ -1,0 +1,21 @@
+[Settings]
+; "dev" uses the mock client (no real PoS required) — use this for local/sandbox work
+; "prod" connects to the real XD Orders PoS over TCP
+app_mode = dev
+
+; Language for generated text (WhatsApp messages, panel labels)
+; Options: pt-br | en-us
+language = pt-br
+
+; Groq API key — required only for the /tables/{id}/message/ endpoint
+; Leave blank to skip AI message generation; all other panel features still work
+GROQ_API_KEY =
+
+; Groq model used for WhatsApp message generation
+groq_model_name = openai/gpt-oss-120b
+
+; COTI cloud services URL — only used in prod mode
+coti_cloud_services_url = http://localhost:8005
+
+; Comma-separated list of Next.js origins allowed to call the FastAPI backend
+frontend_allowed_origins = http://localhost:3000

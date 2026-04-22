@@ -4,15 +4,17 @@ import defaultTheme from "tailwindcss/defaultTheme";
 const config: Config = {
   darkMode: ["class"],
   content: [
-    "./app/**/*.{ts,tsx}",
-    "./components/**/*.{ts,tsx}",
+    "./app/**/*.{ts,tsx,mdx}",
+    "./components/**/*.{ts,tsx,mdx}",
+    "./content/**/*.{md,mdx}",
     "./lib/**/*.{ts,tsx}"
   ],
   theme: {
     extend: {
       fontFamily: {
-        sans: ["var(--font-jakarta)", ...defaultTheme.fontFamily.sans],
-        mono: ["var(--font-mono)", ...defaultTheme.fontFamily.mono]
+        sans: ["var(--font-geist-sans)", ...defaultTheme.fontFamily.sans],
+        mono: ["var(--font-geist-mono)", ...defaultTheme.fontFamily.mono],
+        fraunces: ["var(--font-fraunces)", ...defaultTheme.fontFamily.serif]
       },
       colors: {
         border: "hsl(var(--border))",
@@ -78,7 +80,7 @@ const config: Config = {
       }
     }
   },
-  plugins: [require("tailwindcss-animate")]
+  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")]
 };
 
 export default config;

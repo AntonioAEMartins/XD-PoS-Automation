@@ -1,42 +1,15 @@
-import {
+// Thin adapter over the in-browser PoS simulator. Every call here goes through
+// the real MessageBuilder → TCPClient → MockPoSServer stack, producing fresh
+// wire traces on each invocation. State persists across navigations within a
+// tab (resets on full reload) via StateStore's module-level singleton.
+
+import { RestaurantClient, paginateTables, summarizeTables } from "@/lib/pos";
+import type {
   ActionResponse,
   TableContentResponse,
   TablesResponse,
-  WhatsAppResponse
+  WhatsAppResponse,
 } from "./types";
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ||
-  "http://localhost:8000";
-
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const url = `${API_BASE_URL}${path}`;
-  const response = await fetch(url, {
-    cache: "no-store",
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    }
-  });
-
-  if (!response.ok) {
-    let message = response.statusText;
-    try {
-      const payload = await response.json();
-      message = typeof payload.detail === "string" ? payload.detail : message;
-    } catch {
-      try {
-        message = await response.text();
-      } catch {
-        // ignore parsing errors
-      }
-    }
-    throw new Error(`Request to ${path} failed: ${message}`);
-  }
-
-  return response.json() as Promise<T>;
-}
 
 export type GetTablesParams = {
   page?: number;
@@ -44,46 +17,49 @@ export type GetTablesParams = {
 };
 
 export async function getTables(params?: GetTablesParams): Promise<TablesResponse> {
-  const searchParams = new URLSearchParams();
-
-  if (params?.page !== undefined) {
-    searchParams.set("page", String(params.page));
-  }
-
-  if (params?.pageSize !== undefined) {
-    searchParams.set("page_size", String(params.pageSize));
-  }
-
-  const query = searchParams.toString();
-  const path = query ? `/frontend/tables?${query}` : "/frontend/tables";
-
-  return apiFetch<TablesResponse>(path);
+  const { tables, wireTrace } = await RestaurantClient.getInstance().fetchTablesWithTrace();
+  const { tables: visible, pagination } = paginateTables(
+    tables,
+    params?.page,
+    params?.pageSize
+  );
+  return {
+    tables: visible,
+    wire_trace: wireTrace,
+    summary: summarizeTables(tables),
+    pagination,
+  };
 }
 
 export async function getTable(
   tableId: number | string
 ): Promise<TableContentResponse> {
-  return apiFetch<TableContentResponse>(`/frontend/tables/${tableId}`);
+  const { table, wireTrace } = await RestaurantClient.getInstance().fetchTableContentWithTrace(
+    Number(tableId)
+  );
+  return { table, wire_trace: wireTrace };
 }
 
 export async function postPrebill(
   tableId: number | string
 ): Promise<ActionResponse> {
-  return apiFetch<ActionResponse>(`/frontend/tables/${tableId}/prebill`, {
-    method: "POST"
-  });
+  const { result, wireTrace } = await RestaurantClient.getInstance().prebillWithTrace(
+    Number(tableId)
+  );
+  return { result, wire_trace: wireTrace };
 }
 
 export async function postCloseTable(
   tableId: number | string
 ): Promise<ActionResponse> {
-  return apiFetch<ActionResponse>(`/frontend/tables/${tableId}/close`, {
-    method: "POST"
-  });
+  const { result, wireTrace } = await RestaurantClient.getInstance().closeTableWithTrace(
+    Number(tableId)
+  );
+  return { result, wire_trace: wireTrace };
 }
 
 export async function getTableMessage(
   tableId: number | string
 ): Promise<WhatsAppResponse> {
-  return apiFetch<WhatsAppResponse>(`/tables/${tableId}/message/`);
+  return RestaurantClient.getInstance().getWhatsAppMessage(Number(tableId));
 }

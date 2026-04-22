@@ -1,0 +1,47 @@
+---
+title: "APK over EXE"
+order: 8
+summary: "Two clients spoke the same protocol. We picked the easier one to decompile."
+---
+
+# APK over EXE
+
+## Two clients, one protocol
+
+The vendor shipped the same protocol from two different binaries. At the cashier desk, a Windows `.exe` ran the full-fat point-of-sale — keyboard, receipt printer, cash drawer. In the dining room, an `.apk` ran the waiter-facing half — table lists, items, pre-bill, close. Both connected to the same PDV over the same TCP protocol. Whatever one of them knew about the envelope format, the handshake, the cloud login, the session tokens — the other one knew too, because they both had to talk to the same server on the other end.
+
+That meant we had a choice. We could decompile the EXE, or we could decompile the APK. Either would eventually give us the answers to the three problems in [chapter 07](/docs/07-three-problems). Neither would be fast.
+
+We picked the APK.
+
+## Why the APK, concretely
+
+Four reasons, ordered roughly by how much weight they actually carried:
+
+**Android bytecode is a solved problem.** The tooling for Android reverse engineering is mature and free. `apktool` unpacks the APK and decodes resources. `dex2jar` converts Dalvik bytecode to a JAR full of Java classes. A Java decompiler — {/* TODO: Antonio confirm — which Java decompiler did we actually use? JADX is the usual default; JD-GUI, Procyon, and CFR are the common alternatives. */} — turns those classes back into source that reads, in most cases, almost like what the original author wrote. Variable names are gone (obfuscated or stripped), but the control flow, the method signatures, the string literals, and the library calls are all there.
+
+**Windows binary reverse is harder for the same effort.** We could have loaded the EXE into Ghidra or IDA Free and worked through it. The output would have been reconstructed C or pseudo-C, without the semantic richness a decompiled Android app keeps. Identifying a single TLS call would have been a morning's work; identifying every call to the authentication endpoint and mapping out the post-login state machine would have been a much longer one. Tools exist, it is tractable, the ROI is simply worse.
+
+**The APK is easier to obtain.** We had two routes to a copy: download the installer directly from the vendor's update endpoint (which the handheld does anyway on every boot), or `adb pull` the installed APK off a test device we had access to. {/* TODO: Antonio confirm — which route did we actually take? */} Either way it was minutes, not a negotiation with the restaurant over physical access to the cashier machine.
+
+**The APK contains the same protocol.** This is the point that made the choice obvious. We were not trying to understand features that only exist on the cashier side — cash-drawer logic, receipt formatting, fiscal integration. We were trying to understand the protocol that both clients spoke to the same PDV. The smaller of the two binaries had everything we needed.
+
+## The tools
+
+The decompile toolchain we actually used:
+
+- **`apktool`** — unpacks the APK. Resources, manifest, smali bytecode, native libraries, assets.
+- **`dex2jar`** — converts `classes.dex` (Dalvik bytecode) to standard Java bytecode in a JAR.
+- **A Java decompiler** — {/* TODO: Antonio confirm — as above, JADX / JD-GUI / Procyon / CFR? JADX in particular can skip dex2jar entirely. */} — turns the JAR into readable Java source.
+
+That is the whole pipeline. The first pass — APK to browsable source tree — takes about five minutes and a shell script.
+
+## What about the EXE
+
+We did not decompile the EXE. {/* TODO: Antonio confirm — did we ever attempt it, even exploratorily, or was the decision to skip the Windows side final from the moment the APK was on the laptop? */} The reasoning was the one we laid out above: the APK was sufficient to answer all three problems from [chapter 07](/docs/07-three-problems), and the EXE would have told us the same things the APK already would, except slower.
+
+If the APK had turned out to be a thin shell — if, for example, most of the protocol work had been delegated to a native library with no matching Java wrapper — we would have switched. It was not. The handheld app did the real work in Java, the Java was decompilable, and the protocol structure fell out directly.
+
+## What fell out
+
+That is the next chapter.

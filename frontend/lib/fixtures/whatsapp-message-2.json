@@ -1,0 +1,45 @@
+{
+  "status": "ok",
+  "message": "Ol\u00e1! Aqui est\u00e1 a sua conta da mesa 2:\n\n- 1x Costela de Cordeiro: R$ 119.00\n- 2x Churrasco de Picanha: R$ 224.00\n- 1x Risoto de Cogumelos: R$ 58.00\n- 4x Caipirinha de Lim\u00e3o: R$ 96.00\n- 2x \u00c1gua Mineral com G\u00e1s: R$ 16.00\n- 3x Brigadeiro Gourmet: R$ 54.00\n\nTotal: R$ 567.00\n\nPara pagar agora, basta responder PAGAR nesta conversa.",
+  "details": {
+    "total": 567.0,
+    "orders": [
+      {
+        "product_name": "Costela de Cordeiro",
+        "quantity": 1.0,
+        "price": 119.0,
+        "total": 119.0
+      },
+      {
+        "product_name": "Churrasco de Picanha",
+        "quantity": 2.0,
+        "price": 112.0,
+        "total": 224.0
+      },
+      {
+        "product_name": "Risoto de Cogumelos",
+        "quantity": 1.0,
+        "price": 58.0,
+        "total": 58.0
+      },
+      {
+        "product_name": "Caipirinha de Lim\u00e3o",
+        "quantity": 4.0,
+        "price": 24.0,
+        "total": 96.0
+      },
+      {
+        "product_name": "\u00c1gua Mineral com G\u00e1s",
+        "quantity": 2.0,
+        "price": 8.0,
+        "total": 16.0
+      },
+      {
+        "product_name": "Brigadeiro Gourmet",
+        "quantity": 3.0,
+        "price": 18.0,
+        "total": 54.0
+      }
+    ]
+  }
+}

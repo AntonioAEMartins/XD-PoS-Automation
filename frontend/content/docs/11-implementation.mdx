@@ -1,0 +1,70 @@
+---
+title: "The agent"
+order: 11
+summary: "FastAPI in Python: a TokenManager that persists a working session, a TCP client that speaks the protocol, and a REST facade over Tailscale."
+---
+
+# The agent
+
+## Shape
+
+The agent is a single Python process. It runs on whatever hardware fits in the restaurant — a Raspberry Pi, a spare computer in the back office, sometimes the PDV itself. One process, one configuration file, one JSON cache on disk for the working token.
+
+It does three jobs. It authenticates against the vendor cloud and persists a token that the local PDV accepts. It opens a TCP connection to the PDV and speaks the protocol from [chapter 10](/docs/10-protocol). It exposes a small REST API over a private tunnel so our cloud backend can drive it.
+
+FastAPI was the least interesting decision in the project. We needed a Python HTTP server because the rest of the agent — the TCP client, the byte-level builders, the token flow — had landed in Python during the packet-analysis phase. FastAPI gave us typed routes and OpenAPI for free.
+
+## TokenManager
+
+The first problem is that the PDV does not accept just any token. It accepts a token that the vendor cloud has issued and that the PDV itself has cached as valid. The handheld works around this by logging in once at boot; the agent works around it by being more patient.
+
+The `TokenManager` — at `src/clients/token_manager.py` — does three things.
+
+1. It authenticates against the vendor cloud over HTTPS and asks for every session key available to the configured device identity.
+2. It tests each key against the local PDV over TCP — sends a cheap message, watches for an authenticated response.
+3. It keeps the one that works, and writes it to a JSON file on disk so the next process start can reuse it.
+
+The persistence is the important part. Tokens are not short-lived enough that we need to refresh on every request, and not long-lived enough that we can hardcode one and forget. The cached-on-disk pattern — try the cached token first, fall back to a full authentication cycle only on failure — made the agent survive restarts and intermittent cloud issues without the operator noticing.
+
+## TCP client
+
+The TCP client — `src/clients/tcp_client.py`, driven by `src/clients/restaurant_client.py` — maintains a connection to the PDV on the restaurant LAN. It builds delimited messages using the rules from [chapter 10](/docs/10-protocol) via `src/builders/pos_message_builder.py`, writes them to the socket, reads bytes until it sees `0x04`, and hands the buffer back up to be parsed.
+
+The builder is worth a look on its own. It is the Python mirror of the synthetic Java method from [chapter 9](/docs/09-apk-decompile): a single function that takes an opcode and a `dict` of parameters and returns the bytes to send. Every command the agent issues — fetching a table, moving a table into pre-bill, closing a table — goes through that builder. One shape, one place to get the delimiters right.
+
+Parsing responses is symmetric. The client splits the returned buffer on `0x1D`, splits each field on `=`, and returns a dictionary. Fields whose values are base64-encoded JSON — `BOARDINFO`, `QUEUE`, `OBJECT` — are decoded at the layer above, once the protocol parse is clean.
+
+## REST facade
+
+On top of the TCP client sits a thin FastAPI app. It exposes just enough HTTP for our NestJS backend to orchestrate the payment flow — the surface described in the repo README's section 4.1.
+
+- `GET /tables` and `GET /tables/{id}` — list tables, fetch one table's bill.
+- `GET /tables/{id}/message/` — build a WhatsApp-friendly summary of the bill.
+- `POST /tables/{id}/payment` and `POST /tables/{id}/close` — move a table into pre-bill, then into closed-and-paid.
+- `GET /frontend/tables`, `GET /frontend/tables/{id}`, `POST /frontend/tables/{id}/prebill`, `POST /frontend/tables/{id}/close` — the same actions with a `wire_trace` payload attached, for the debug console.
+
+None of these endpoints know anything about TCP or base64 envelopes. They call into the `RestaurantClient`, which calls into the TCP client, which talks to the PDV.
+
+## The tunnel
+
+The agent never binds to a public interface. The restaurant's LAN does not get a port opened on the internet. Instead, the agent joins a Tailscale tailnet managed by our cloud backend — the agent registers with a pre-shared key at install time, receives a stable Tailscale hostname, and the NestJS backend calls it over that hostname on the tailnet's private IP range.
+
+This is the part we care about in a customer conversation. No inbound holes on the shop network. No DNS, no certificates to renew, no NAT traversal. The restaurant owner sees a small Docker container running inside their LAN, and nothing about their public network surface changes.
+
+## What it does not do
+
+The agent is deliberately narrow. It can read tables, it can move a table into pre-bill, it can close a table after payment. That is the entire write surface.
+
+Things it cannot do, by design:
+
+- Adding or editing items on a table.
+- Applying discounts.
+- Voiding items, changing prices, issuing refunds.
+
+This is not a technical limit — the protocol supports all of those operations, and the handheld uses them every day. It is a product boundary. Our agent is allowed to do what a guest's WhatsApp payment requires, and nothing beyond that. The PDV stays the source of truth for anything sensitive.
+
+## Poke at it
+
+The debug console at `/demo` is the same FastAPI's `/frontend` surface wrapped in a UI. It shows the table list, the items, the WhatsApp summary, and — expanded on demand — the raw wire trace: bytes out, bytes in, base64 payloads decoded in place. Reviewers who want to see the protocol from [chapter 10](/docs/10-protocol) actually moving through a socket can open it there.
+
+It runs every day now. [Chapter 12](/docs/12-outcome) is what that actually proved.

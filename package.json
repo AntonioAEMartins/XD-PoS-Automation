@@ -1,0 +1,14 @@
+{
+  "name": "xd-pos-automation",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --names BACKEND,FRONTEND --prefix-colors blue,green \"pnpm dev:backend\" \"pnpm dev:frontend\"",
+    "dev:backend": "uvicorn app:app --reload --host 0.0.0.0 --port 8000",
+    "dev:frontend": "pnpm --dir frontend dev",
+    "setup": "pnpm --dir frontend install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

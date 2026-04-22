@@ -1,0 +1,27 @@
+{
+  "status": "ok",
+  "message": "Ol\u00e1! Aqui est\u00e1 a sua conta da mesa 5:\n\n- 1x Feijoada Completa: R$ 68.00\n- 2x Refrigerante Lata: R$ 15.00\n- 1x \u00c1gua Mineral com G\u00e1s: R$ 8.00\n\nTotal: R$ 91.00\n\nPara pagar agora, basta responder PAGAR nesta conversa.",
+  "details": {
+    "total": 91.0,
+    "orders": [
+      {
+        "product_name": "Feijoada Completa",
+        "quantity": 1.0,
+        "price": 68.0,
+        "total": 68.0
+      },
+      {
+        "product_name": "Refrigerante Lata",
+        "quantity": 2.0,
+        "price": 7.5,
+        "total": 15.0
+      },
+      {
+        "product_name": "\u00c1gua Mineral com G\u00e1s",
+        "quantity": 1.0,
+        "price": 8.0,
+        "total": 8.0
+      }
+    ]
+  }
+}

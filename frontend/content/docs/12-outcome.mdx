@@ -1,0 +1,50 @@
+---
+title: "What it proved"
+order: 12
+summary: "A PoS with no public API now drives WhatsApp-native checkout in a real restaurant, every night. What that is and is not evidence of."
+---
+
+# What it proved
+
+## The qualitative win
+
+A proprietary PoS that ships without a public API — one the vendor has no commercial incentive to open — now flips table statuses in production because a guest paid a bill inside WhatsApp.
+
+The integration is not a prototype. It is not a capture-and-replay. It is not a script that happens to work on one Saturday. It is a Python agent inside the shop LAN, talking to the PDV on TCP, driven over a private tunnel by the same NestJS backend that takes the WhatsApp webhook. When a customer pays, the waiter sees the table change state on the handheld they are already holding.
+
+## The numbers
+
+The hard metrics are what make this concrete instead of anecdotal. Antonio fills these in before publication.
+
+- **Payments processed through the agent in production**: {/* TODO: Antonio fill — cumulative count of successful WhatsApp payments that drove a PDV status change. */}
+- **Average checkout time, before vs. after**: {/* TODO: Antonio fill — seconds per guest at the cashier before Astra, vs. seconds from QR scan to table-closed after. */}
+- **Tables closed by the agent vs. manually**: {/* TODO: Antonio fill — ratio over a representative week. */}
+- **Uptime and incident count since go-live**: {/* TODO: Antonio fill — days of continuous operation, number of incidents requiring manual intervention. */}
+
+Once those numbers land, the first paragraph of this chapter stops being a claim and starts being evidence.
+
+## What it did not prove
+
+It did not prove we have a business. One restaurant is not a market. The integration that ships today is specific to one PoS vendor; the next restaurant we sign may run a different PoS, which will be its own packet capture, its own APK, its own three months of reverse-engineering. Connectors do not amortize cleanly.
+
+It did not prove operational readiness at scale. Today the agent is installed, configured, and monitored by us. Rolling this out to ten restaurants means support rotations, deployment automation, version skew across shops, and a network of tailnets that a human has to audit. None of that is built yet.
+
+It did not prove the economics. We know the per-restaurant value of removing the cashier queue; we do not yet know the per-restaurant cost of keeping a connector alive through a vendor's firmware updates.
+
+Being honest about those three gaps is the only way the first section of this chapter stays honest.
+
+## What generalizes
+
+Three things that came out of this work are worth pulling out of the specific vendor context.
+
+**Reverse-engineering a client is often cheaper than waiting for an API.** The handheld APK gave us, in a few weeks, what a commercial integration with the vendor would have taken months to negotiate — if the vendor had been willing to negotiate at all. Most of the cost was time on a laptop, not meetings. When the ethics align — you have permission from the restaurant, you are mimicking a client the vendor already trusts, you are scoped to a narrow set of operations the client performs daily — the decompile path is a real option.
+
+**An APK is a cheaper attack surface than a compiled desktop binary.** Not because Android reverse-engineering tools are better, although they are. Because an Android app is constrained: it has to run in a sandbox, talk to its servers over well-known sockets, and survive being unplugged. Every one of those constraints is a guarantee that helps the reader. A desktop `.exe` can be anything; a signed APK can only be a small number of things.
+
+**Token persistence, tested against the live system, is a pattern worth reusing.** The `TokenManager` logic — try the cached credential, fall back to a full authentication cycle on failure, persist whatever works — is not specific to this vendor or this protocol. Any integration that sits between a cloud auth provider and a local system that caches its own accepted credentials can use the same shape.
+
+## The point
+
+This project started as a payment product. It ended as evidence that a small team, given permission and a laptop, can ship an integration against a system that was never meant to be integrated with. The reason to write it down is that most of the engineering decisions that got us here were not about invention. They were about refusing to accept that a closed system stays closed just because its vendor says so.
+
+That is what the agent is evidence of.

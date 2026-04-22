@@ -1,0 +1,49 @@
+---
+title: "Becoming the middle"
+order: 5
+summary: "We had to listen to a protocol we couldn't see. So we sat between the handheld and everything it talked to."
+---
+
+# Becoming the middle
+
+## The question from chapter 04
+
+Chapter 04 ended with a shop LAN, a PDV under the cashier's counter, and a waiter handheld pulling table state out of thin air. We knew the wire mattered. We could not read it. Nothing on any device we controlled had a log we could open.
+
+The answer was the only answer there ever is when you cannot read a protocol: put yourself between the two parties talking it.
+
+## A word on why this was legitimate
+
+The vendor whose protocol we were about to intercept was not a hostile target. We had a commercial relationship with them through the restaurant — they were the PoS we were integrating with, and we were upfront from the beginning that our goal was to build an integration and, once it worked, offer it to them. {/* TODO: Antonio confirm — was there ever a formal conversation with the vendor about offering them the integration, or was that always an implicit intent? */}
+
+We were not reverse-engineering to clone or replace. We were reverse-engineering because the documented path (an API) did not exist, the owner had said yes on the condition that the PoS screen stays right, and the only way to keep that promise was to speak the protocol the PoS already spoke. If the vendor had published a spec the afternoon we started, we would have thrown everything away and read the spec instead.
+
+## The setup
+
+The topology on the shop floor was three-hop:
+
+- **Waiter handheld** (Android, vendor-signed APK) on the shop Wi-Fi.
+- **The shop's internet router**, which the handheld used for both local LAN traffic (to the PDV) and uplink (to the vendor cloud).
+- **The vendor cloud**, reached over HTTPS.
+
+We inserted a fourth element — a laptop on the same Wi-Fi — and made the handheld route through it. The mechanism was unremarkable: we rewrote the handheld's network configuration so its default gateway and DNS resolver pointed at our laptop, and on the laptop we enabled IP forwarding so packets still reached the router. From the handheld's perspective, the internet still worked. From our perspective, every packet the handheld sent or received now crossed an interface we controlled. {/* TODO: Antonio confirm — did we use explicit proxy config on the Android Wi-Fi settings, an ARP-spoofing tool like bettercap / arpspoof, or something else? The prose assumes "configure the handheld's Wi-Fi" but the actual mechanism matters. */}
+
+<MitmDiagram />
+
+Click each node in the diagram above. Each one is a different vantage point on the same conversation — the handheld, our interposed proxy, the vendor cloud, and the in-store PDV — and what we could actually observe from each.
+
+## The tools
+
+On the laptop we ran {/* TODO: Antonio confirm — which MITM tool did we actually use? mitmproxy, Charles, Burp Suite, bettercap, or a combination? Prose below says "an HTTPS interception proxy" as a safe placeholder. */} an HTTPS interception proxy with a self-signed root CA, plus packet capture on the Wi-Fi interface. The proxy terminated TLS going northbound to the cloud (when it was allowed to — spoiler: not always), and the capture saw everything on the LAN in the clear.
+
+Two things mattered about the setup that are easy to miss:
+
+First, we never touched the PDV. The PDV is the restaurant's source of truth for bills; anything we installed on it would be a liability on a Saturday night. The proxy ran on a laptop we brought with us, and when we left, it left with us.
+
+Second, we never modified the handheld's software. We changed its network configuration, which is reversible with three taps. We did not root it, we did not install anything on it, we did not extract anything from it. The APK we would eventually decompile was pulled from a different source. {/* TODO: Antonio confirm — did we `adb pull` it from the device, or download the installer from the vendor's update endpoint? */}
+
+## What we could see
+
+We could see the packets now. That was half the problem.
+
+The other half was understanding them.

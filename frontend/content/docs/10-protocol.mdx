@@ -1,0 +1,90 @@
+---
+title: "The protocol"
+order: 10
+summary: "Delimiter bytes, opcodes, and base64 JSON in certain fields — the reverse-engineered query language, stated plainly."
+---
+
+# The protocol
+
+## The shape
+
+Every message the handheld sent to the PDV had the same three-part structure.
+
+- `[NP]` — byte `0x1D`, the ASCII group separator. It sits between fields.
+- `[EQ]` — byte `0x3D`, the literal `=` character. It sits between a key and its value.
+- `[EOM]` — byte `0x04`, end of transmission. It terminates the message.
+
+A message is a concatenation of `[NP]KEY[EQ]value` segments, followed by `[EOM]`. The very first segment is always `[NP]OP[EQ]<opcode>`. The rest is free-form key-value data, in an order the PDV does not care about.
+
+Responses come back on the same TCP socket in the same format. The reader grabs bytes until it sees `0x04`, then hands the buffer to a parser that splits on `0x1D` and again on `0x3D`.
+
+That is the entire transport. There is no length prefix, no version byte, no checksum.
+
+## The opcodes
+
+The handheld used a small, stable set of opcodes. These are the ones we saw traffic for and implemented in our agent.
+
+- `GETDATALIST` — pull reference data (menus, employees, table layouts). Used at startup.
+- `GETBOARDCONTENT` — fetch the items, quantities, and running total for one specific table.
+- `POSTQUEUE` — the workhorse. Sends a state-changing action, bundled as a queue of operations. We used it for two specific actions: moving a table into pre-bill, and closing a table after payment confirmation.
+- `OPENTABLE` — open a new table for an employee. We observed it; we did not need to send it.
+- `CLOSEBOARD` — close a table. An alternative path to `POSTQUEUE` in certain firmware builds.
+- `ADDITEM` — append an item line to a table. Observed, deliberately not used by our agent.
+
+{/* TODO: Antonio confirm — is the full opcode list above the one he wants public, or should CLOSEBOARD / ADDITEM / OPENTABLE be redacted to keep the published surface smaller? */}
+
+## The payloads
+
+Simple commands are naked key-value data. Opcodes that carry a meaningful payload — a table bill, a queue of actions — put that payload into a single field as **base64-encoded JSON**.
+
+That is the one encoding you have to handle before the message reads like a structured object.
+
+- `GETBOARDCONTENT` responses stash the table's items inside a `BOARDINFO=` value.
+- `POSTQUEUE` requests stash the queue of operations inside a `QUEUE=` value.
+- `GETDATALIST` responses stash the reference data inside `OBJECT=`.
+
+Inside the base64 the JSON is conventional — camel-cased keys, nested arrays, numeric fields. Once you decode the blob, the data model is legible.
+
+## Two examples
+
+A request to fetch one table's bill, on the wire:
+
+```text
+[NP]OP=GETBOARDCONTENT[NP]BOARD=12[NP]USER=204[NP]TOKEN=e7c1a9b34f[EOM]
+```
+
+The same message, with the delimiters spelled out as their byte values:
+
+```text
+\x1DOP=GETBOARDCONTENT\x1DBOARD=12\x1DUSER=204\x1DTOKEN=e7c1a9b34f\x04
+```
+
+A response carrying items inside a base64 envelope, abbreviated:
+
+```text
+[NP]OP=GETBOARDCONTENT[NP]STATUS=OK[NP]BOARDINFO=eyJib2FyZCI6MTIsIml0ZW1zIjpbeyJza3UiOiJQSVpaQS1NQVJHIiwicXR5IjoxLCJwcmljZSI6NDkuOX1dLCJ0b3RhbCI6NDkuOX0=[EOM]
+```
+
+Decoded, the `BOARDINFO` value is plain JSON:
+
+```json
+{
+  "board": 12,
+  "items": [
+    { "sku": "PIZZA-MARG", "qty": 1, "price": 49.9 }
+  ],
+  "total": 49.9
+}
+```
+
+That is the entire protocol. Three delimiters, a handful of opcodes, and a base64 envelope for anything structured.
+
+## Build a message
+
+The builder below is the same protocol, reduced to a form you can type into. Change the opcode, change the fields, watch the wire envelope update in place. No network, no agent — just the assembly rules.
+
+<ProtocolBuilder />
+
+The `[NP]` separator, the `[EQ]` between key and value, the `[EOM]` terminator. That is what we had to reproduce, byte-for-byte, from an agent we controlled.
+
+With the protocol in hand, we wrote the agent — [chapter 11](/docs/11-implementation).
