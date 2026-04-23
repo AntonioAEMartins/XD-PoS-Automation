@@ -85,3 +85,6 @@ frontend/tsconfig.tsbuildinfo
 # Tool caches
 node_modules/
 .claude/
+
+# Nested external repo
+xdo-java-files/
