@@ -212,7 +212,7 @@ const FIELDS: Array<{
   {
     key: "messagetype",
     label: "MESSAGETYPE",
-    value: "XDPeople.Entities.PostActionMessage",
+    value: "VPPeople.Entities.PostActionMessage",
     color: "slate"
   },
   {
@@ -335,18 +335,13 @@ export function PacketInspector() {
         onMouseOver={onMouseOver}
         onMouseLeave={onMouseLeave}
       >
-        <div className="flex flex-col gap-4">
-          <p className="eyebrow">Packet transformation</p>
-          <h3 className="text-balance text-2xl font-semibold leading-tight tracking-tight text-foreground sm:text-3xl">
-            One pre-bill, four readings.
-          </h3>
-          <p className="text-pretty text-[15px] leading-relaxed text-muted-foreground">
-            The same 482 bytes — laid out as a ruler over the wire
-            (printable form one click in), a list of fields, and the
-            action they actually were. Hover any one to light up the
-            matching slice across the others.
-          </p>
-        </div>
+        <p className="text-pretty text-[15px] leading-relaxed text-muted-foreground">
+          An example of how a pre-bill is sent to the POS &mdash; the
+          integration runs backwards, we&rsquo;re the ones sending.
+          Every field was lifted from MITM Wireshark captures off the
+          waiters&rsquo; Android handheld; none are ours, they&rsquo;re
+          how the POS already talks.
+        </p>
 
         {/* HEX BAND — full width, proportional segments + collapsible ASCII */}
         <Stage1HexBand />
@@ -374,8 +369,8 @@ function Stage1HexBand() {
       <header className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="flex items-center gap-3">
           <span className="mono text-[10.5px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
-            <span className="text-foreground/40">01</span> HEX bytes ·
-            field map
+            <span className="text-foreground/40">01</span> Hex bytes
+            representation
           </span>
         </div>
         <span className="mono text-[10.5px] tracking-wider text-muted-foreground">
@@ -383,9 +378,9 @@ function Stage1HexBand() {
         </span>
       </header>
       <p className="text-[13px] leading-relaxed text-muted-foreground">
-        <span className="text-foreground">A ruler over the wire.</span>{" "}
-        Each segment is one field, width scales with bytes — at a glance
-        you can see the QUEUE payload eats most of the packet.
+        Our message is represented in bytes, and just like TCP or UDP
+        it has to be formatted to send information. Each block is a
+        piece of it.
       </p>
       <div className="flex h-8 w-full overflow-hidden rounded-md border border-white/10 bg-white/[0.02]">
         {HEX_SEGMENTS.map((seg, i) => {
@@ -453,10 +448,10 @@ function Stage1HexBand() {
           </svg>
           <span className="mono text-[10.5px] font-medium uppercase tracking-[0.22em]">
             <span className="text-foreground/40">02</span>{" "}
-            {showAscii ? "Hide" : "Show"} ASCII (decoded)
+            {showAscii ? "Hide" : "Show"} printable form
           </span>
           <span className="text-[12px] text-muted-foreground/80">
-            — same bytes, printable
+            &mdash; same bytes, decoded
           </span>
         </button>
 
@@ -561,12 +556,7 @@ function renderTextSegment(
 
 function Stage3Fields() {
   return (
-    <StageCard
-      num="03"
-      label="How we read it"
-      meta="6 fields"
-      title="Six labelled fields."
-    >
+    <StageCard num="03" label="Named fields" meta="6">
       <div className="flex flex-col gap-1.5">
         {FIELDS.map(f => (
           <div
@@ -593,12 +583,7 @@ function Stage3Fields() {
 
 function Stage4Action() {
   return (
-    <StageCard
-      num="04"
-      label="As an action"
-      meta="intent"
-      title="Print table 12's bill."
-    >
+    <StageCard num="04" label="The action" meta="POSTQUEUE">
       <div className="flex flex-col gap-3">
         <div className="text-[19px] font-semibold leading-tight tracking-tight text-foreground">
           Open{" "}
@@ -615,11 +600,11 @@ function Stage4Action() {
           .
         </div>
         <p className="text-[13px] leading-snug text-foreground/85">
-          On behalf of{" "}
+          Sent by{" "}
           <span data-field="queue" className="text-sky-300">
             employee&nbsp;19
           </span>
-          , with the box&rsquo;s{" "}
+          , with the POS&rsquo;s{" "}
           <span data-field="token" className="text-emerald-300">
             session token
           </span>
@@ -631,7 +616,7 @@ function Stage4Action() {
           <span data-field="messageid" className="text-brand-300">
             message&nbsp;id
           </span>{" "}
-          — so a duplicate hit doesn&rsquo;t double-print.
+          &mdash; so a retry doesn&rsquo;t double-print.
         </p>
         <ul className="m-0 grid list-none grid-cols-2 gap-x-5 gap-y-1 p-0">
           <ActionFact field="queue" k="Action" v="3 · pre-bill" />
@@ -682,12 +667,12 @@ function StageCard({
   num: string;
   label: string;
   meta: string;
-  title: string;
+  title?: string;
   children: ReactNode;
 }) {
   return (
     <section
-      aria-label={`${label} — ${title}`}
+      aria-label={title ? `${label} — ${title}` : label}
       className="flex flex-col gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5"
     >
       <header className="flex flex-wrap items-baseline justify-between gap-2">
@@ -698,9 +683,11 @@ function StageCard({
           {meta}
         </span>
       </header>
-      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">
-        {title}
-      </h4>
+      {title ? (
+        <h4 className="text-[15px] font-semibold tracking-tight text-foreground">
+          {title}
+        </h4>
+      ) : null}
       <div className="flex-1 rounded-lg border border-white/5 bg-background/70 p-3.5">
         {children}
       </div>

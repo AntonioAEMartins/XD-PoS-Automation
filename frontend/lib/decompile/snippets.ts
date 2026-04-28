@@ -3,7 +3,7 @@
 // real field names and logic flow; allocator noise like
 // `((Foo)localObject1).<init>()` was stripped so the credential trail
 // reads on a single screen. Source files live under
-// xdo-java-files/xdo_source/pt/xd/xdmapi/ in the repo root.
+// vpo-java-files/vpo_source/pt/vp/vpmapi/ in the repo root.
 
 export type DecompileHighlight = {
   // 0-based line index within the snippet's `code` string.
@@ -11,10 +11,9 @@ export type DecompileHighlight = {
 };
 
 export type DecompileSnippet = {
-  id: "xdapi" | "secured-rest" | "get-board-info";
+  id: "vpapi" | "secured-rest" | "get-board-info";
   shortLabel: string;
   fullPath: string;
-  caption: { eyebrow: string; body: string; tertiary?: string };
   // First line number shown in the gutter.
   startLine: number;
   // Newline-separated code; do not include a trailing newline.
@@ -22,22 +21,22 @@ export type DecompileSnippet = {
   highlights: DecompileHighlight[];
 };
 
-const XDAPI_CODE = `public final class XDApi
+const VPAPI_CODE = `public final class VPApi
 {
-  private static final String ADMIN = "info@xd.pt";
-  private static final String ADMIN_PASSWORD = "xd";
+  private static final String ADMIN = "info@vp.pt";
+  private static final String ADMIN_PASSWORD = "vp";
   private static final String CLIENT_ID = "mobileapps";
-  public static final XDApi INSTANCE = new XDApi();
-  private static final String TEST_URL = "https://myxd1.azurewebsites.net";
-  private static XDSvcApi client;
+  public static final VPApi INSTANCE = new VPApi();
+  private static final String TEST_URL = "https://myvp1.azurewebsites.net";
+  private static VPSvcApi client;
 }`;
 
 const SECURED_REST_CODE = `public void intercept(RequestFacade facade) {
   if (!loggedIn) {
     try {
       FormUrlEncodedTypedOutput body = new FormUrlEncodedTypedOutput();
-      body.addField("username", username);            // info@xd.pt
-      body.addField("password", password);            // xd
+      body.addField("username", username);            // info@vp.pt
+      body.addField("password", password);            // vp
       body.addField("client_id", clientId);           // mobileapps
       body.addField("client_secret", clientSecret);   // "" — defaulted at line 36
       body.addField("grant_type", "password");
@@ -84,30 +83,18 @@ const GET_BOARD_INFO_CODE = `public DeliverableMessage MakeDeliverable() {
 
 export const DECOMPILE_SNIPPETS: DecompileSnippet[] = [
   {
-    id: "xdapi",
-    shortLabel: "XDApi.java",
-    fullPath: "pt/xd/xdmapi/networkutils/XDApi.java",
-    caption: {
-      eyebrow: "What to look for",
-      body:
-        "Hard-coded credentials. The vendor's whole auth depends on a six-character password and a three-word client_id, all baked into the APK. The TEST_URL is the production endpoint — the variable name lies.",
-    },
+    id: "vpapi",
+    shortLabel: "VPApi.java",
+    fullPath: "pt/vp/vpmapi/networkutils/VPApi.java",
     startLine: 12,
-    code: XDAPI_CODE,
+    code: VPAPI_CODE,
     // Lines 2-6 in the snippet — the four `final String` declarations.
     highlights: [{ line: 2 }, { line: 3 }, { line: 4 }, { line: 6 }],
   },
   {
     id: "secured-rest",
     shortLabel: "SecuredRestBuilder.java",
-    fullPath: "pt/xd/xdmapi/networkutils/SecuredRestBuilder.java",
-    caption: {
-      eyebrow: "What to look for",
-      body:
-        'Five form fields POSTed to /oauth/token, JSON parsed, then attached as Authorization: Bearer to every subsequent request. The client_secret defaults to "" at line 36 — that\'s the only credential the codebase doesn\'t hand-roll a value for.',
-      tertiary:
-        "Decompile is condensed: the real source has ((Foo)localObject1).<init>() noise around every allocation.",
-    },
+    fullPath: "pt/vp/vpmapi/networkutils/SecuredRestBuilder.java",
     startLine: 163,
     code: SECURED_REST_CODE,
     // The five addField rows, the three-line JSON parse that assigns
@@ -127,12 +114,7 @@ export const DECOMPILE_SNIPPETS: DecompileSnippet[] = [
   {
     id: "get-board-info",
     shortLabel: "GetBoardInfoMessage.java",
-    fullPath: "pt/xd/xdmapi/networkmessages/GetBoardInfoMessage.java",
-    caption: {
-      eyebrow: "What to look for",
-      body:
-        "Every TCP message the handheld sends goes through this builder. The last AddMessageParameter call is where the access_token from Tab 2 enters the message string and becomes the TOKEN[EQ]<uuid> field highlighted in Stage 2 of the inspector.",
-    },
+    fullPath: "pt/vp/vpmapi/networkmessages/GetBoardInfoMessage.java",
     startLine: 33,
     code: GET_BOARD_INFO_CODE,
     // The narrating comment + the line that splices `this.token` into the wire string.

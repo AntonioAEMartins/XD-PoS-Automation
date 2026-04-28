@@ -147,22 +147,9 @@ export function DecompiledCode() {
 
   return (
     <div className="glass-panel rounded-2xl p-6 sm:p-8">
-      <div className="flex flex-col gap-3">
-        <p className="eyebrow">Decompiled from the APK</p>
-        <h3 className="text-balance text-2xl font-semibold leading-tight tracking-tight text-foreground sm:text-3xl">
-          Three files, one credential trail.
-        </h3>
-        <p className="text-pretty text-[15px] leading-relaxed text-muted-foreground">
-          Hard-coded constants, an OAuth handshake, the call that splices
-          the result back into every TCP message. Three excerpts from the
-          vendor&rsquo;s own source.
-        </p>
-      </div>
-
       <Tabs
         value={active}
         onValueChange={value => setActive(value as DecompileSnippet["id"])}
-        className="mt-6"
       >
         {/* Terminal chrome — shows the active file's full path. */}
         <div className="flex items-center gap-3 rounded-t-xl border border-b-0 border-white/5 bg-background/40 px-3 py-2">
@@ -204,31 +191,12 @@ export function DecompiledCode() {
                 value={snippet.id}
                 className="mt-0 flex flex-col gap-3"
               >
-                <div className="flex flex-col gap-1.5 px-1 pt-3">
-                  <p className="eyebrow">{snippet.caption.eyebrow}</p>
-                  <p className="text-pretty text-[13.5px] leading-relaxed text-foreground/80">
-                    {snippet.caption.body}
-                  </p>
-                  {snippet.caption.tertiary ? (
-                    <p className="text-[11.5px] italic leading-relaxed text-muted-foreground">
-                      {snippet.caption.tertiary}
-                    </p>
-                  ) : null}
-                </div>
                 <CodePane snippet={snippet} />
               </TabsContent>
             ))}
           </div>
         </motion.div>
       </Tabs>
-
-      <p className="mt-6 text-[11.5px] leading-relaxed text-muted-foreground">
-        <span className="mono break-all text-foreground/70">
-          POST https://myxd1.azurewebsites.net/api/auth/login
-        </span>
-        {" "}&middot; same five form fields, same response, every time the
-        handheld cold-starts.
-      </p>
     </div>
   );
 }
