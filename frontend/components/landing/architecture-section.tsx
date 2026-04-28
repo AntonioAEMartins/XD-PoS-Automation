@@ -1,4 +1,5 @@
-import { HttpsStory } from "./https-story";
+import { DecompiledCode } from "./decompiled-code";
+import { DeploymentTopology } from "./deployment-topology";
 import { PacketInspector } from "./packet-inspector";
 
 type Phase = {
@@ -72,9 +73,29 @@ export function ArchitectureSection() {
 
       <SequenceDiagram />
 
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-col gap-4">
+          <p className="eyebrow">Deployment topology</p>
+          <h3 className="text-balance text-3xl font-semibold leading-[1.1] tracking-tight text-foreground sm:text-4xl">
+            Where each piece actually lives.
+          </h3>
+          <p className="text-pretty text-lg leading-relaxed text-muted-foreground">
+            Three trust zones, stacked. One we don&rsquo;t control, one we
+            host ourselves, one we reach into over a private tunnel. Our
+            backend is split across the middle two &mdash; a NestJS on an
+            Oracle VM drives a Python agent we dropped on a Raspberry Pi
+            inside the shop.
+          </p>
+        </div>
+
+        <DeploymentTopology />
+      </div>
+
       <PacketInspector />
 
-      <HttpsStory />
+      <TokenRevealHeader />
+
+      <DecompiledCode />
 
       <ol className="grid gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-2">
         {PHASES.map(phase => (
@@ -101,6 +122,26 @@ export function ArchitectureSection() {
         </ul>
       </div>
     </section>
+  );
+}
+
+function TokenRevealHeader() {
+  return (
+    <header className="flex flex-col gap-4">
+      <p className="eyebrow">One more thing</p>
+      <h3 className="text-balance text-3xl font-semibold leading-[1.1] tracking-tight text-foreground sm:text-4xl">
+        Where did the TOKEN come from?
+      </h3>
+      <p className="font-fraunces text-[1.7rem] italic font-medium leading-[1.15] tracking-tight text-foreground sm:text-[2rem]">
+        Without it, every packet we built was a 401.
+      </p>
+      <p className="text-pretty text-lg leading-relaxed text-muted-foreground">
+        Captures gave us the message shape &mdash; not the credentials.
+        The PDV trusted whatever TOKEN the handheld presented; the cloud
+        minted it. To play the handheld convincingly, we had to find the
+        minting call. APK over EXE, again.
+      </p>
+    </header>
   );
 }
 
