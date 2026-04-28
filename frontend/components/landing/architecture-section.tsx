@@ -2,44 +2,6 @@ import { DecompiledCode } from "./decompiled-code";
 import { DeploymentTopology } from "./deployment-topology";
 import { PacketInspector } from "./packet-inspector";
 
-type Phase = {
-  number: string;
-  title: string;
-  summary: string;
-  detail: string;
-};
-
-const PHASES: Phase[] = [
-  {
-    number: "A",
-    title: "Intercept",
-    summary: "Sit between the handheld and the LAN.",
-    detail:
-      "A laptop on shop Wi-Fi, rewriting the handheld's gateway and DNS so every packet it sent or received crossed an interface we controlled. An HTTPS proxy terminated the cloud calls where it could. The PDV we never touched."
-  },
-  {
-    number: "B",
-    title: "Decompile",
-    summary: "APK over desktop binary. Always.",
-    detail:
-      "The Android handheld app gave up more than the Windows PDV ever would. Sandbox constraints, clear socket contracts, survivable across unplugs. Decompile handed us the protocol's shape, the auth flow, the retry logic."
-  },
-  {
-    number: "C",
-    title: "Synthesize",
-    summary: "A protocol nobody wrote down.",
-    detail:
-      "Cross-reference packet captures against the decompiled client until a minimal set of TCP messages reproduced pre-bill, split, and close. Token persistence was the pattern worth stealing: cache the credential, fall back to a full auth cycle on failure."
-  },
-  {
-    number: "D",
-    title: "Deploy",
-    summary: "A FastAPI agent inside the shop LAN.",
-    detail:
-      "An on-premises Python agent that speaks the protocol on TCP, exposes a narrow HTTP surface, and is driven over a private tunnel by the same backend that handles the WhatsApp webhook. When the guest pays, the waiter sees the table flip."
-  }
-];
-
 export function ArchitectureSection() {
   return (
     <section
@@ -74,53 +36,46 @@ export function ArchitectureSection() {
       <SequenceDiagram />
 
       <div className="flex flex-col gap-6">
-        <div className="flex flex-col gap-4">
-          <p className="eyebrow">Deployment topology</p>
-          <h3 className="text-balance text-3xl font-semibold leading-[1.1] tracking-tight text-foreground sm:text-4xl">
-            Where each piece actually lives.
-          </h3>
-          <p className="text-pretty text-lg leading-relaxed text-muted-foreground">
-            Three trust zones, stacked. One we don&rsquo;t control, one we
-            host ourselves, one we reach into over a private tunnel. Our
-            backend is split across the middle two &mdash; a NestJS on an
-            Oracle VM drives a Python agent we dropped on a Raspberry Pi
-            inside the shop.
-          </p>
-        </div>
+        <p className="text-pretty text-lg leading-relaxed text-muted-foreground">
+          But for us to have this topology, we had to connect multiple
+          different layers &mdash; our WhatsApp finite automaton runs on
+          an Oracle instance, the restaurant&rsquo;s POS runs locally on
+          a private network inside the shop.
+        </p>
+
+        <h3 className="text-balance text-3xl font-semibold leading-[1.1] tracking-tight text-foreground sm:text-4xl">
+          Where each piece actually lives.
+        </h3>
 
         <DeploymentTopology />
       </div>
 
-      <PacketInspector />
+      <div className="flex flex-col gap-6">
+        <h3 className="text-balance text-3xl font-semibold leading-[1.1] tracking-tight text-foreground sm:text-4xl">
+          Enough of topology &mdash; how our agent actually spoke to the POS.
+        </h3>
+
+        <PacketInspector />
+      </div>
 
       <TokenRevealHeader />
 
       <DecompiledCode />
 
-      <ol className="grid gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-2">
-        {PHASES.map(phase => (
-          <PhaseCard key={phase.number} phase={phase} />
-        ))}
-      </ol>
-
-      <div className="rounded-2xl border border-border bg-card/40 p-6 sm:p-8">
-        <p className="eyebrow mb-3">What generalizes</p>
-        <ul className="flex flex-col gap-3 text-[15px] leading-relaxed text-foreground/90">
-          <li>
-            <span className="text-foreground">Reverse-engineering a client</span>{" "}
-            is often cheaper than waiting for a vendor to ship an API.
-          </li>
-          <li>
-            <span className="text-foreground">A signed APK</span> is a narrower,
-            cheaper attack surface than a compiled desktop binary.
-          </li>
-          <li>
-            <span className="text-foreground">Token persistence</span>,
-            tested against the live system, is a pattern worth reusing any
-            time you sit between a cloud auth provider and a local cache.
-          </li>
-        </ul>
+      <div className="flex flex-col gap-4">
+        <p className="text-pretty text-lg leading-relaxed text-muted-foreground">
+          The first file gives up the admin email, the admin password,
+          and the client_id. The second shows how those fields are
+          POSTed to mint the TOKEN. The third is the TCP message
+          builder &mdash; where that TOKEN is spliced into every wire
+          frame. Four credentials, three files. The only one missing:
+          the client_secret.
+        </p>
+        <p className="font-fraunces text-[1.7rem] italic font-medium leading-[1.15] tracking-tight text-foreground sm:text-[2rem]">
+          Turns out it was an empty string.
+        </p>
       </div>
+
     </section>
   );
 }
@@ -136,32 +91,18 @@ function TokenRevealHeader() {
         Without it, every packet we built was a 401.
       </p>
       <p className="text-pretty text-lg leading-relaxed text-muted-foreground">
-        Captures gave us the message shape &mdash; not the credentials.
-        The PDV trusted whatever TOKEN the handheld presented; the cloud
-        minted it. To play the handheld convincingly, we had to find the
-        minting call. APK over EXE, again.
+        Captures gave us the shape of the message &mdash; not the
+        credentials behind it. The POS trusts whatever TOKEN the
+        handheld presents; the vendor cloud is the one that mints it.
+        To impersonate the handheld, we had to find that minting call.
+      </p>
+      <p className="font-fraunces text-[1.7rem] italic font-medium leading-[1.15] tracking-tight text-foreground sm:text-[2rem]">
+        Could we read the code the Android device was actually running?
+      </p>
+      <p className="text-pretty text-lg leading-relaxed text-muted-foreground">
+        Yes &mdash; and here are three of the files that mattered.
       </p>
     </header>
-  );
-}
-
-function PhaseCard({ phase }: { phase: Phase }) {
-  return (
-    <li className="flex h-full flex-col gap-3 bg-background p-6 transition-colors hover:bg-muted/40">
-      <div className="flex items-center justify-between">
-        <span className="mono text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">
-          Phase {phase.number}
-        </span>
-        <span className="h-1.5 w-1.5 rounded-full bg-foreground/60" aria-hidden />
-      </div>
-      <h3 className="text-lg font-semibold tracking-tight text-foreground">
-        {phase.title}
-      </h3>
-      <p className="text-sm text-muted-foreground">{phase.summary}</p>
-      <p className="text-[13.5px] leading-relaxed text-foreground/80">
-        {phase.detail}
-      </p>
-    </li>
   );
 }
 
@@ -251,8 +192,9 @@ function SequenceDiagram() {
       </div>
 
       <p className="mt-6 text-pretty text-sm leading-relaxed text-muted-foreground">
-        Guest pays on their own phone. The waiter&rsquo;s handheld sees the
-        table flip on the next poll. We&rsquo;re nowhere in this picture.
+        Guest scans a QR, pays in WhatsApp; our backend drives the agent,
+        which pushes the packet to the POS. The waiter&rsquo;s handheld
+        flips on its next poll &mdash; we&rsquo;re nowhere in this picture.
       </p>
     </div>
   );
