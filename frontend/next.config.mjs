@@ -9,6 +9,7 @@ const nextConfig = {
   reactStrictMode: true,
   pageExtensions: ["ts", "tsx", "js", "jsx", "md", "mdx"],
   typedRoutes: true,
+  output: "export",
 };
 
 export default withMDX(nextConfig);
