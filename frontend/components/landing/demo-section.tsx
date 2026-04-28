@@ -1,6 +1,6 @@
 import { ArrowUpRight, Github } from "lucide-react";
 
-import { DemoShell } from "./embedded-demo/demo-shell";
+import { FloorPlan } from "./embedded-demo/floor-plan";
 
 const GITHUB_URL = "https://github.com/AntonioAEMartins/XD-PoS-Automation";
 const PERSONAL_SITE_URL = "https://antonioaemartins.dev";
@@ -10,26 +10,27 @@ export function DemoSection() {
     <section
       id="demo"
       aria-labelledby="demo-heading"
-      className="relative mx-auto flex w-full max-w-3xl flex-col gap-14 px-6 py-24"
+      className="relative mx-auto flex w-full max-w-5xl flex-col gap-14 px-6 py-24"
     >
-      <header className="flex flex-col gap-6">
+      <header className="mx-auto flex w-full max-w-3xl flex-col gap-6">
         <p className="eyebrow">03 / Demo</p>
         <h2
           id="demo-heading"
           className="text-balance text-4xl font-semibold leading-[1.08] tracking-tight text-foreground sm:text-5xl"
         >
-          The agent&rsquo;s view of the shop, in your browser.
+          Our view of the shop, in your browser.
         </h2>
         <p className="text-pretty text-lg leading-relaxed text-muted-foreground">
-          A debug console showing what the on-prem agent sees: table state
-          pulled from the PDV, the WhatsApp message a guest receives, and
-          the raw TCP wire trace that drives every action.
+          The same floor we walked into every shift &mdash; about forty
+          tables across an inside salão and an outside terraço. A square
+          lights up the moment a guest pays. Hover to scan the room; click
+          to see the open orders and the action we&rsquo;d run next.
         </p>
       </header>
 
-      <DemoShell />
+      <FloorPlan />
 
-      <footer className="mt-8 flex flex-col gap-3 border-t border-border pt-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+      <footer className="mx-auto flex w-full max-w-3xl flex-col gap-3 border-t border-border pt-8 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
         <p>
           &copy; {new Date().getFullYear()} Antônio A. E. Martins. Case study
           written from project notes and the repo.
