@@ -1,0 +1,2205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Packet transformation — explorations</title>
+<style>
+  :root {
+    --bg: hsl(0 0% 4%);
+    --fg: hsl(0 0% 92%);
+    --muted: hsl(0 0% 10%);
+    --muted-fg: hsl(0 0% 62%);
+    --card: hsl(0 0% 6%);
+    --card-2: hsl(0 0% 8%);
+    --border: hsl(0 0% 15%);
+    --border-strong: hsl(0 0% 22%);
+    --radius: 12px;
+
+    --amber: #f5b945;       /* POSTQUEUE / opcode */
+    --amber-soft: #f5b94522;
+    --sky: #56b8ef;         /* QUEUE / [EQ] */
+    --sky-soft: #56b8ef22;
+    --emerald: #4cc69a;     /* TOKEN / uuid */
+    --emerald-soft: #4cc69a22;
+    --brand: #a78bfa;       /* [EOM] terminator */
+    --brand-soft: #a78bfa22;
+    --rose: #ef6e7c;        /* detective wall string */
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    line-height: 1.55;
+  }
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+  }
+  a { color: inherit; }
+
+  /* ─────────────  page chrome  ───────────── */
+  .page {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 80px 24px 200px;
+  }
+  .page header h1 {
+    font-size: clamp(40px, 6vw, 64px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    margin: 16px 0 18px;
+    text-wrap: balance;
+  }
+  .page header p {
+    color: var(--muted-fg);
+    max-width: 64ch;
+    margin: 0;
+    font-size: 16px;
+  }
+  .toc {
+    margin: 56px 0 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .toc a {
+    background: var(--card);
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    text-decoration: none;
+    transition: background 120ms ease;
+  }
+  .toc a:hover { background: hsl(0 0% 9%); }
+  .toc a strong { font-size: 15px; font-weight: 600; letter-spacing: -0.005em; }
+  .toc a span { color: var(--muted-fg); font-size: 13px; }
+
+  .approach {
+    margin-top: 140px;
+    border-top: 1px solid var(--border);
+    padding-top: 64px;
+  }
+  .approach > .intro {
+    max-width: 64ch;
+    margin: 0 auto 56px;
+    padding: 0 24px;
+    text-align: center;
+  }
+  .approach > .intro h2 {
+    font-size: clamp(28px, 3.5vw, 40px);
+    margin: 12px 0 16px;
+    letter-spacing: -0.015em;
+    line-height: 1.1;
+    font-weight: 600;
+  }
+  .approach > .intro p {
+    color: var(--muted-fg);
+    margin: 0;
+  }
+  .approach > .intro p strong { color: var(--fg); font-weight: 500; }
+  .pill {
+    display: inline-block;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    background: var(--card);
+  }
+  .footnote {
+    color: var(--muted-fg);
+    font-size: 12px;
+    text-align: center;
+    margin-top: 18px;
+    font-style: italic;
+  }
+
+  /* ─────────────  shared field colors  ───────────── */
+  .c-amber { color: var(--amber); }
+  .c-sky { color: var(--sky); }
+  .c-emerald { color: var(--emerald); }
+  .c-brand { color: var(--brand); }
+  .bg-amber { background: var(--amber-soft); border-color: var(--amber); color: var(--amber); }
+  .bg-sky { background: var(--sky-soft); border-color: var(--sky); color: var(--sky); }
+  .bg-emerald { background: var(--emerald-soft); border-color: var(--emerald); color: var(--emerald); }
+  .bg-brand { background: var(--brand-soft); border-color: var(--brand); color: var(--brand); }
+
+  /* ═══════════════════════════════════════════════════════════
+     APPROACH A — The scrubber
+     ═══════════════════════════════════════════════════════════ */
+  .a-stage {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+  .a-caption {
+    min-height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--muted-fg);
+    font-size: 15px;
+    line-height: 1.55;
+    transition: color 200ms ease;
+  }
+  .a-caption b { color: var(--fg); font-weight: 500; }
+  .a-canvas {
+    --t: 0;
+    position: relative;
+    height: 360px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background:
+      radial-gradient(800px 240px at 50% 0%, hsl(0 0% 7%), transparent 60%),
+      var(--card);
+    overflow: hidden;
+    margin: 14px 0 28px;
+  }
+  .a-layer {
+    position: absolute;
+    inset: 0;
+    padding: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 280ms ease, transform 480ms cubic-bezier(0.2, 0.8, 0.2, 1), filter 280ms ease;
+    /* opacity / scale / blur are written from JS — see setT(). */
+    opacity: 0;
+  }
+  .a-grid {
+    display: grid;
+    grid-template-columns: repeat(16, 1.4em);
+    gap: 4px 6px;
+    font-size: 12px;
+    line-height: 1;
+  }
+  .a-grid .b {
+    background: hsl(0 0% 9%);
+    border: 1px solid hsl(0 0% 14%);
+    border-radius: 3px;
+    padding: 6px 0;
+    text-align: center;
+    color: hsl(0 0% 70%);
+    transition: background 480ms ease, border-color 480ms ease, color 480ms ease, transform 700ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .a-grid .b.amber { background: var(--amber-soft); border-color: var(--amber); color: var(--amber); }
+  .a-grid .b.sky { background: var(--sky-soft); border-color: var(--sky); color: var(--sky); }
+  .a-grid .b.emerald { background: var(--emerald-soft); border-color: var(--emerald); color: var(--emerald); }
+  .a-grid .b.brand { background: var(--brand-soft); border-color: var(--brand); color: var(--brand); }
+  .a-grouped {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    max-width: 720px;
+  }
+  .a-row {
+    display: grid;
+    grid-template-columns: 168px 1fr;
+    gap: 14px;
+    align-items: center;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(0 0% 7%);
+    font-size: 12.5px;
+  }
+  .a-row .k {
+    color: var(--muted-fg);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-size: 10.5px;
+    font-weight: 600;
+  }
+  .a-row.f-amber .k { color: var(--amber); }
+  .a-row.f-sky .k { color: var(--sky); }
+  .a-row.f-emerald .k { color: var(--emerald); }
+  .a-row.f-brand .k { color: var(--brand); }
+  .a-row .v { color: hsl(0 0% 78%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .a-decoded {
+    width: 100%;
+    max-width: 540px;
+    padding: 12px 18px;
+    background: hsl(0 0% 7%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .a-decoded .line { display: flex; gap: 10px; align-items: baseline; padding: 2px 0; }
+  .a-decoded .line .key { color: var(--sky); }
+  .a-decoded .line .val { color: hsl(0 0% 86%); }
+  .a-decoded .line .note { color: var(--muted-fg); font-size: 11.5px; margin-left: auto; font-style: italic; }
+  .a-decoded .line.action .val { color: var(--amber); font-weight: 600; }
+
+  .a-controls {
+    margin-top: 20px;
+    padding: 14px 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+  }
+  .a-track {
+    position: relative;
+    padding: 14px 6px 36px;
+  }
+  .a-slider {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+    outline: none;
+  }
+  .a-slider::-webkit-slider-runnable-track {
+    height: 4px;
+    background: linear-gradient(90deg,
+      var(--amber) 0%,
+      var(--sky) 50%,
+      var(--brand) 100%);
+    border-radius: 999px;
+  }
+  .a-slider::-moz-range-track {
+    height: 4px;
+    background: linear-gradient(90deg, var(--amber) 0%, var(--sky) 50%, var(--brand) 100%);
+    border-radius: 999px;
+  }
+  .a-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px; height: 22px;
+    background: hsl(0 0% 96%);
+    border: 1px solid hsl(0 0% 60%);
+    border-radius: 50%;
+    margin-top: -9px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+    cursor: grab;
+  }
+  .a-slider::-webkit-slider-thumb:active { cursor: grabbing; }
+  .a-slider::-moz-range-thumb {
+    width: 22px; height: 22px;
+    background: hsl(0 0% 96%);
+    border: 1px solid hsl(0 0% 60%);
+    border-radius: 50%;
+    cursor: grab;
+  }
+  .a-stops {
+    margin-top: 8px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .a-stops button {
+    background: transparent;
+    border: none;
+    padding: 6px 0;
+    color: var(--muted-fg);
+    font-size: 11.5px;
+    letter-spacing: 0.04em;
+    text-align: left;
+    cursor: pointer;
+    transition: color 160ms ease;
+    font-family: inherit;
+  }
+  .a-stops button:nth-child(2) { text-align: center; }
+  .a-stops button:nth-child(3) { text-align: right; }
+  .a-stops button.on { color: var(--fg); }
+  .a-stops button:hover { color: var(--fg); }
+
+  /* ═══════════════════════════════════════════════════════════
+     APPROACH B — Translation pane
+     Two horizontal panes. Left always shows the wire. Right
+     is one of three readings, switchable by tab.
+     ═══════════════════════════════════════════════════════════ */
+  .b-stage {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+  .b-frame {
+    display: grid;
+    grid-template-columns: 1fr 24px 1fr;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    overflow: hidden;
+  }
+  .b-pane {
+    padding: 22px;
+    min-height: 460px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .b-pane.left { border-right: 1px solid var(--border); background: hsl(0 0% 5%); }
+  .b-pane.right { background: var(--card-2); }
+  .b-flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--card);
+    border-right: 1px solid var(--border);
+  }
+  .b-flow svg {
+    width: 24px;
+    height: 24px;
+    color: var(--muted-fg);
+    opacity: 0.7;
+  }
+  .b-pane-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .b-pane-head .label {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+  }
+  .b-pane-head .meta {
+    font-size: 11px;
+    color: var(--muted-fg);
+  }
+  .b-tabs {
+    display: flex;
+    gap: 4px;
+    background: hsl(0 0% 8%);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 3px;
+  }
+  .b-tabs button {
+    background: transparent;
+    border: none;
+    color: var(--muted-fg);
+    font-size: 11.5px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-family: inherit;
+    letter-spacing: 0.02em;
+    transition: background 160ms ease, color 160ms ease;
+  }
+  .b-tabs button:hover { color: var(--fg); }
+  .b-tabs button.on {
+    background: hsl(0 0% 14%);
+    color: var(--fg);
+  }
+  .b-content {
+    flex: 1;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(0 0% 4%);
+    padding: 14px 16px;
+    font-size: 12.5px;
+    line-height: 1.7;
+    overflow: auto;
+    position: relative;
+  }
+  .b-target {
+    position: absolute;
+    inset: 14px 16px;
+    overflow: auto;
+    transition: opacity 220ms ease, transform 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    opacity: 0;
+    transform: translateY(8px);
+    pointer-events: none;
+  }
+  .b-target.on {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+  .b-bytes {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 11.5px;
+    line-height: 1.7;
+    color: hsl(0 0% 75%);
+    word-break: break-all;
+  }
+  .b-bytes .h { padding: 1px 2px; border-radius: 2px; }
+  .b-bytes .h.amber { background: var(--amber-soft); color: var(--amber); }
+  .b-bytes .h.sky { background: var(--sky-soft); color: var(--sky); }
+  .b-bytes .h.emerald { background: var(--emerald-soft); color: var(--emerald); }
+  .b-bytes .h.brand { background: var(--brand-soft); color: var(--brand); }
+  .b-msg-row {
+    display: grid;
+    grid-template-columns: 130px 18px 1fr;
+    gap: 6px;
+    padding: 4px 0;
+    align-items: baseline;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+  }
+  .b-msg-row .key { color: var(--sky); }
+  .b-msg-row .eq {
+    color: var(--muted-fg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    text-align: center;
+    font-size: 9px;
+    padding: 1px 0;
+    letter-spacing: 0.08em;
+  }
+  .b-msg-row .val { color: hsl(0 0% 80%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .b-msg-row .val.amber { color: var(--amber); font-weight: 600; }
+  .b-msg-row .val.brand { color: var(--brand); }
+  .b-action {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .b-action .head {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--fg);
+    letter-spacing: -0.01em;
+  }
+  .b-action .head .strong { color: var(--amber); }
+  .b-action .body { color: hsl(0 0% 80%); font-size: 14px; line-height: 1.6; }
+  .b-action ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 24px;
+  }
+  .b-action li {
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px dashed hsl(0 0% 14%);
+    padding: 6px 0;
+    font-size: 12.5px;
+  }
+  .b-action li span:first-child { color: var(--muted-fg); }
+  .b-action li span:last-child { color: var(--fg); font-weight: 500; }
+  .b-byline {
+    font-size: 12.5px;
+    color: var(--muted-fg);
+    line-height: 1.6;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     APPROACH C — The conversation
+     ═══════════════════════════════════════════════════════════ */
+  .c-stage {
+    max-width: 740px;
+    margin: 0 auto;
+    padding: 0 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .c-msg {
+    display: flex;
+    gap: 14px;
+    align-items: flex-start;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 480ms ease, transform 480ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .c-msg.in-view { opacity: 1; transform: none; }
+  .c-msg.you { flex-direction: row-reverse; }
+  .c-msg > .c-body { display: flex; flex-direction: column; min-width: 0; max-width: 580px; }
+  .c-msg.you > .c-body { align-items: flex-end; }
+  .c-avatar {
+    width: 36px; height: 36px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: var(--muted-fg);
+  }
+  .c-msg.them .c-avatar { background: var(--card-2); color: var(--fg); }
+  .c-msg.you .c-avatar { background: hsl(0 0% 11%); color: var(--fg); }
+  .c-bubble {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 16px;
+    font-size: 14px;
+    line-height: 1.55;
+    max-width: 580px;
+  }
+  .c-msg.them .c-bubble { border-top-left-radius: 4px; }
+  .c-msg.you .c-bubble { border-top-right-radius: 4px; background: hsl(0 0% 9%); }
+  .c-bubble.tight { padding: 10px 14px; font-size: 13.5px; color: hsl(0 0% 80%); }
+  .c-bubble strong { font-weight: 500; color: var(--fg); }
+  .c-bubble .muted { color: var(--muted-fg); }
+  .c-bubble .inline-bytes {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    background: hsl(0 0% 4%);
+    border-radius: 8px;
+    font-family: ui-monospace, monospace;
+    font-size: 11.5px;
+    line-height: 1.65;
+    color: hsl(0 0% 70%);
+    word-break: break-all;
+    max-height: 90px;
+    overflow: hidden;
+    position: relative;
+  }
+  .c-bubble .inline-bytes::after {
+    content: "";
+    position: absolute; left: 0; right: 0; bottom: 0; height: 30px;
+    background: linear-gradient(transparent, var(--card));
+    pointer-events: none;
+  }
+  .c-bubble.you .inline-bytes::after { background: linear-gradient(transparent, hsl(0 0% 9%)); }
+  .c-bubble .inline-fields {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .c-bubble .inline-fields .row {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 10px;
+    font-family: ui-monospace, monospace;
+    font-size: 11.5px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: hsl(0 0% 4%);
+    border: 1px solid var(--border);
+  }
+  .c-bubble .inline-fields .row .k { color: var(--sky); letter-spacing: 0.04em; font-weight: 600; }
+  .c-bubble .inline-fields .row .v { color: hsl(0 0% 80%); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .c-bubble .inline-action {
+    margin-top: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--amber);
+    background: var(--amber-soft);
+    border-radius: 8px;
+    color: var(--fg);
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  .c-bubble .inline-action b { color: var(--amber); font-weight: 600; }
+  .c-time {
+    font-size: 10.5px;
+    color: var(--muted-fg);
+    margin-top: 4px;
+    display: block;
+  }
+  .c-typing {
+    display: inline-flex;
+    gap: 3px;
+    padding: 8px 12px;
+  }
+  .c-typing span {
+    width: 6px; height: 6px;
+    background: var(--muted-fg);
+    border-radius: 50%;
+    animation: c-typing 1200ms ease-in-out infinite;
+  }
+  .c-typing span:nth-child(2) { animation-delay: 150ms; }
+  .c-typing span:nth-child(3) { animation-delay: 300ms; }
+  @keyframes c-typing {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.3; }
+    30% { transform: translateY(-3px); opacity: 1; }
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     APPROACH D — Detective's wall
+     Three columns connected by red strings (SVG). Hand-written
+     margin notes.
+     ═══════════════════════════════════════════════════════════ */
+  .d-stage {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+  .d-board {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background:
+      radial-gradient(800px 380px at 30% 0%, hsl(0 0% 9%), transparent 60%),
+      radial-gradient(600px 300px at 75% 80%, hsl(0 0% 8%), transparent 60%),
+      var(--bg);
+    padding: 32px 24px;
+    overflow: hidden;
+  }
+  .d-board::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(rgba(255,255,255,0.022) 1px, transparent 1px);
+    background-size: 22px 22px;
+    pointer-events: none;
+  }
+  .d-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.05fr 1fr;
+    gap: 60px;
+    position: relative;
+    z-index: 2;
+  }
+  .d-col h3 {
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    margin: 0 0 14px;
+    text-align: center;
+    font-weight: 500;
+  }
+  .d-col .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .d-card {
+    background: hsl(0 0% 7%);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: hsl(0 0% 78%);
+    position: relative;
+    transition: transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 200ms ease;
+  }
+  .d-card[data-row]:hover {
+    transform: translateY(-2px);
+    border-color: hsl(0 0% 32%);
+  }
+  .d-card.amber { border-color: var(--amber); background: linear-gradient(hsl(0 0% 7%), hsl(0 0% 7%)) padding-box, var(--amber) border-box; }
+  .d-card.sky { border-color: var(--sky); }
+  .d-card.emerald { border-color: var(--emerald); }
+  .d-card.brand { border-color: var(--brand); }
+  .d-card .small { color: var(--muted-fg); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .d-card .pin {
+    position: absolute;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--rose);
+    box-shadow: 0 0 0 2px hsl(0 0% 4%), 0 1px 4px rgba(255,90,100,0.6);
+    top: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .d-card.amber .pin { background: var(--amber); box-shadow: 0 0 0 2px hsl(0 0% 4%), 0 1px 4px rgba(245,185,69,0.6); }
+  .d-card.sky .pin { background: var(--sky); box-shadow: 0 0 0 2px hsl(0 0% 4%), 0 1px 4px rgba(86,184,239,0.6); }
+  .d-card.emerald .pin { background: var(--emerald); box-shadow: 0 0 0 2px hsl(0 0% 4%), 0 1px 4px rgba(76,198,154,0.6); }
+  .d-card.brand .pin { background: var(--brand); box-shadow: 0 0 0 2px hsl(0 0% 4%), 0 1px 4px rgba(167,139,250,0.6); }
+  .d-strings {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .d-strings line {
+    stroke: rgba(239,110,124,0.55);
+    stroke-width: 1.4;
+    stroke-dasharray: 4 5;
+    animation: d-string 6s linear infinite;
+  }
+  @keyframes d-string {
+    to { stroke-dashoffset: -180; }
+  }
+  .d-note {
+    position: absolute;
+    background: rgba(255,250,210,0.94);
+    color: hsl(0 0% 12%);
+    padding: 10px 12px;
+    font-family: "Marker Felt", "Comic Sans MS", "Bradley Hand", "Segoe Print", cursive;
+    font-size: 12px;
+    line-height: 1.4;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+    border-radius: 1px;
+    max-width: 200px;
+    z-index: 3;
+    transform: rotate(-2deg);
+    transition: transform 200ms ease;
+  }
+  .d-note::before {
+    content: "";
+    position: absolute;
+    top: -4px; left: 50%;
+    width: 10px; height: 10px;
+    background: var(--rose);
+    border-radius: 50%;
+    transform: translateX(-50%);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.6);
+  }
+  .d-note:hover { transform: rotate(0deg) scale(1.04); }
+  .d-note.n1 { top: 24px; right: 28px; transform: rotate(3deg); }
+  .d-note.n2 { bottom: 36px; left: 24px; transform: rotate(-4deg); }
+  .d-note.n3 { top: 280px; left: 34%; transform: rotate(2deg); max-width: 180px; }
+
+  /* ═══════════════════════════════════════════════════════════
+     APPROACH E — The reading lens
+     A long horizontal byte stream, draggable lens.
+     ═══════════════════════════════════════════════════════════ */
+  .e-stage {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+  .e-frame {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    padding: 24px 24px 28px;
+  }
+  .e-readout {
+    min-height: 96px;
+    margin-bottom: 18px;
+    padding: 16px 18px;
+    background: hsl(0 0% 4%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 18px;
+    align-items: start;
+  }
+  .e-readout .which {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .e-readout .which .label {
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+  }
+  .e-readout .which .name {
+    font-family: ui-monospace, monospace;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .e-readout .which.amber .name { color: var(--amber); }
+  .e-readout .which.sky .name { color: var(--sky); }
+  .e-readout .which.emerald .name { color: var(--emerald); }
+  .e-readout .which.brand .name { color: var(--brand); }
+  .e-readout .which.muted .name { color: var(--muted-fg); }
+  .e-readout .copy {
+    color: hsl(0 0% 82%);
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  .e-readout .copy b { color: var(--fg); font-weight: 500; }
+  .e-stream-wrap {
+    position: relative;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background:
+      linear-gradient(90deg, hsl(0 0% 5%), hsl(0 0% 6%) 50%, hsl(0 0% 5%));
+    padding: 20px 0;
+    user-select: none;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(0 0% 24%) transparent;
+  }
+  .e-stream-wrap::-webkit-scrollbar { height: 6px; }
+  .e-stream-wrap::-webkit-scrollbar-thumb {
+    background: hsl(0 0% 22%);
+    border-radius: 999px;
+  }
+  .e-stream {
+    position: relative;
+    height: 56px;
+  }
+  .e-byte {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: hsl(0 0% 60%);
+    padding: 6px 4px;
+    border-radius: 3px;
+    transition: color 200ms ease, background 200ms ease;
+  }
+  .e-byte.in-lens.amber { color: var(--amber); background: var(--amber-soft); }
+  .e-byte.in-lens.sky { color: var(--sky); background: var(--sky-soft); }
+  .e-byte.in-lens.emerald { color: var(--emerald); background: var(--emerald-soft); }
+  .e-byte.in-lens.brand { color: var(--brand); background: var(--brand-soft); }
+  .e-byte.in-lens.muted { color: hsl(0 0% 88%); }
+  .e-lens {
+    position: absolute;
+    top: 6px; bottom: 6px;
+    width: 200px;
+    border: 1.5px solid hsl(0 0% 90%);
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 30% 30%, rgba(255,255,255,0.06), transparent 60%),
+      rgba(255,255,255,0.02);
+    backdrop-filter: blur(0.4px);
+    box-shadow:
+      inset 0 0 22px rgba(255,255,255,0.04),
+      0 6px 28px rgba(0,0,0,0.6),
+      0 0 0 1px rgba(255,255,255,0.06);
+    cursor: grab;
+    z-index: 10;
+    transition: box-shadow 200ms ease;
+  }
+  .e-lens:active { cursor: grabbing; }
+  .e-lens::before {
+    content: "";
+    position: absolute;
+    top: 50%; left: 12px;
+    transform: translateY(-50%);
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.4);
+  }
+  .e-lens::after {
+    content: "drag ↔";
+    position: absolute;
+    bottom: -22px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    color: var(--muted-fg);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    pointer-events: none;
+    transition: opacity 200ms ease;
+  }
+  .e-lens.has-moved::after { opacity: 0; }
+  .e-zones {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .e-zone-tick {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 1px;
+    background: hsl(0 0% 14%);
+  }
+  .e-tip {
+    margin-top: 10px;
+    font-size: 11.5px;
+    color: var(--muted-fg);
+    text-align: center;
+    font-style: italic;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     APPROACH F — Filmstrip
+     Three large frames, scroll-snap, captions like silent film.
+     ═══════════════════════════════════════════════════════════ */
+  .f-stage {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+  .f-strip-wrap {
+    position: relative;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    background:
+      repeating-linear-gradient(90deg,
+        hsl(0 0% 7%) 0 28px,
+        hsl(0 0% 5%) 28px 56px),
+      hsl(0 0% 4%);
+  }
+  .f-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 88vw);
+    gap: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-padding: 0;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(0 0% 30%) transparent;
+  }
+  @media (min-width: 1100px) {
+    .f-strip { grid-template-columns: repeat(3, 56vw); }
+  }
+  .f-frame {
+    scroll-snap-align: center;
+    padding: 56px 6vw 56px;
+    border-right: 1px dashed hsl(0 0% 12%);
+    position: relative;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 18px;
+    min-height: 580px;
+  }
+  .f-frame:last-child { border-right: none; }
+  .f-frame::before, .f-frame::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0;
+    height: 24px;
+    background:
+      repeating-linear-gradient(90deg,
+        transparent 0 12px,
+        hsl(0 0% 11%) 12px 16px,
+        transparent 16px 28px,
+        hsl(0 0% 11%) 28px 32px,
+        transparent 32px 44px);
+    background-color: hsl(0 0% 4%);
+    border-top: 1px solid hsl(0 0% 10%);
+    border-bottom: 1px solid hsl(0 0% 10%);
+  }
+  .f-frame::before { top: 0; }
+  .f-frame::after { bottom: 0; }
+  .f-act {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+    border-bottom: 1px solid hsl(0 0% 12%);
+    padding-bottom: 10px;
+  }
+  .f-act .num {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+  }
+  .f-act .title {
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    font-weight: 600;
+  }
+  .f-body {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .f-body p {
+    margin: 0;
+    color: hsl(0 0% 86%);
+    font-size: 15px;
+    line-height: 1.7;
+    max-width: 56ch;
+  }
+  .f-body p .accent { color: var(--fg); font-weight: 500; }
+  .f-art {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: hsl(0 0% 5%);
+    padding: 14px;
+    min-height: 220px;
+    overflow: hidden;
+  }
+  .f-bytes {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    color: hsl(0 0% 65%);
+    word-break: break-all;
+    max-height: 180px;
+    overflow: hidden;
+    position: relative;
+  }
+  .f-bytes::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: 0; height: 60px;
+    background: linear-gradient(transparent, hsl(0 0% 5%));
+  }
+  .f-card {
+    background: hsl(0 0% 4%);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    margin: 4px 0;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 10px;
+  }
+  .f-card.amber { border-left: 2px solid var(--amber); }
+  .f-card.sky { border-left: 2px solid var(--sky); }
+  .f-card.emerald { border-left: 2px solid var(--emerald); }
+  .f-card.brand { border-left: 2px solid var(--brand); }
+  .f-card .k { color: var(--muted-fg); letter-spacing: 0.04em; font-weight: 600; }
+  .f-card .v { color: hsl(0 0% 80%); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .f-action {
+    background: var(--amber-soft);
+    border: 1px solid var(--amber);
+    border-radius: 8px;
+    padding: 14px 16px;
+    color: var(--fg);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  .f-action b { color: var(--amber); font-weight: 600; }
+  .f-caption {
+    font-style: italic;
+    color: var(--muted-fg);
+    font-size: 12.5px;
+    text-align: center;
+    border-top: 1px solid hsl(0 0% 12%);
+    padding-top: 10px;
+  }
+  .f-nav {
+    margin-top: 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 6px;
+  }
+  .f-nav .dots { display: flex; gap: 8px; }
+  .f-nav .dots button {
+    width: 28px; height: 8px;
+    border-radius: 999px;
+    background: hsl(0 0% 14%);
+    border: none;
+    cursor: pointer;
+    transition: background 200ms ease;
+    padding: 0;
+  }
+  .f-nav .dots button.on { background: var(--fg); }
+  .f-nav .arrows { display: flex; gap: 6px; }
+  .f-nav .arrows button {
+    width: 32px; height: 32px;
+    border-radius: 999px;
+    background: hsl(0 0% 9%);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    transition: background 160ms ease, border-color 160ms ease;
+  }
+  .f-nav .arrows button:hover { background: hsl(0 0% 13%); border-color: hsl(0 0% 26%); }
+
+  /* ═══════════════════════════════════════════════════════════
+     Closing card
+     ═══════════════════════════════════════════════════════════ */
+  .closer {
+    margin-top: 140px;
+    padding: 48px 24px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+  }
+  .closer h2 {
+    font-size: clamp(24px, 3vw, 32px);
+    margin: 0 0 12px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .closer p {
+    color: var(--muted-fg);
+    max-width: 60ch;
+    margin: 0 auto;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ─────────────  PAGE INTRO  ───────────── -->
+  <header>
+    <p class="eyebrow">Packet transformation · explorations</p>
+    <h1>Six ways to read 482 bytes.</h1>
+    <p>
+      The current section on the landing page is a chip with three stages stacked
+      top-to-bottom. These are six explorations of the same idea — the chip is
+      gone, the layout is horizontal, and the language is more like
+      "we noticed a pattern" and less like "TLV-encoded payload". Same fixture
+      throughout: one pre-bill, table 12, captured once.
+    </p>
+  </header>
+
+  <nav class="toc">
+    <a href="#a"><strong>A · The scrubber</strong><span>One slider, three readings, the bytes morph as you drag.</span></a>
+    <a href="#b"><strong>B · Translation pane</strong><span>Source on the left, target on the right. Pick your reading.</span></a>
+    <a href="#c"><strong>C · The conversation</strong><span>A chat thread instead of a stack of stages.</span></a>
+    <a href="#d"><strong>D · Detective's wall</strong><span>Bytes pinned to fields pinned to intent. Red string.</span></a>
+    <a href="#e"><strong>E · The reading lens</strong><span>Drag a lens across the wire. Read what it lands on.</span></a>
+    <a href="#f"><strong>F · Filmstrip</strong><span>Three frames, scroll-snap, captions like a silent film.</span></a>
+  </nav>
+
+  <!-- ═════════════════  APPROACH A — SCRUBBER  ═════════════════ -->
+  <section class="approach" id="a">
+    <div class="intro">
+      <span class="pill">Approach A · slider</span>
+      <h2>The scrubber.</h2>
+      <p>
+        One handle, three stops. <strong>1 · what we sniffed</strong> →
+        <strong>2 · what it really was</strong> →
+        <strong>3 · what it actually meant</strong>. The crunch in the middle
+        is honest — bytes literally collapsing into named fields — and then
+        the third step drops the technicality and just tells you what the
+        box was being asked to do.
+      </p>
+    </div>
+
+    <div class="a-stage">
+      <div class="a-caption" id="a-caption">
+        <span><b>One pre-bill, on the wire.</b> 482 bytes, no structure visible to the naked eye.</span>
+      </div>
+
+      <div class="a-canvas" id="a-canvas">
+        <!-- Layer 1 — raw bytes -->
+        <div class="a-layer a-layer-bytes">
+          <div class="a-grid" id="a-grid"></div>
+        </div>
+
+        <!-- Layer 2 — grouped -->
+        <div class="a-layer a-layer-grouped">
+          <div class="a-grouped" id="a-grouped"></div>
+        </div>
+
+        <!-- Layer 3 — decoded -->
+        <div class="a-layer a-layer-decoded">
+          <div class="a-decoded" id="a-decoded"></div>
+        </div>
+      </div>
+
+      <div class="a-controls">
+        <div class="a-track">
+          <input type="range" min="0" max="100" value="0" class="a-slider" id="a-slider" aria-label="Scrub between readings" />
+          <div class="a-stops">
+            <button data-stop="0" class="on">1 · what we sniffed</button>
+            <button data-stop="50">2 · what it really was</button>
+            <button data-stop="100">3 · what it actually meant</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="footnote">Drag the handle. Or click any of the three labels.</p>
+    </div>
+  </section>
+
+  <!-- ═════════════════  APPROACH B — TRANSLATION PANE  ═════════════════ -->
+  <section class="approach" id="b">
+    <div class="intro">
+      <span class="pill">Approach B · translation pane</span>
+      <h2>Source &amp; target.</h2>
+      <p>
+        The wire is always on the left. On the right, you choose the reading:
+        <strong>as a message</strong>, <strong>as JSON</strong>, or
+        <strong>as the action it actually was</strong>. Like a translation
+        app, except the source language is "bytes nobody documented".
+      </p>
+    </div>
+
+    <div class="b-stage">
+      <div class="b-frame">
+        <!-- LEFT: wire -->
+        <div class="b-pane left">
+          <div class="b-pane-head">
+            <span class="label">Source · the wire</span>
+            <span class="meta">482 B · TCP · port 8099</span>
+          </div>
+          <div class="b-content">
+            <div class="b-bytes" id="b-source"></div>
+          </div>
+        </div>
+
+        <!-- FLOW arrow -->
+        <div class="b-flow" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+            <path d="M5 12 H19 M14 7 L19 12 L14 17" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </div>
+
+        <!-- RIGHT: target -->
+        <div class="b-pane right">
+          <div class="b-pane-head">
+            <span class="label">Target · how we read it</span>
+            <div class="b-tabs" role="tablist">
+              <button class="on" data-target="msg">as a message</button>
+              <button data-target="json">as JSON</button>
+              <button data-target="act">as an action</button>
+            </div>
+          </div>
+          <div class="b-content">
+
+            <!-- Target: message (TLV view) -->
+            <div class="b-target on" data-pane="msg">
+              <p class="b-byline" style="margin: 0 0 10px;">
+                Same bytes, grouped at the
+                <span class="mono c-amber">[NP]</span>
+                separators. Each field has a <span class="mono c-sky">[EQ]</span> in the middle, like
+                <span class="mono">key=value</span>.
+              </p>
+              <div id="b-msg"></div>
+            </div>
+
+            <!-- Target: JSON -->
+            <div class="b-target" data-pane="json">
+              <p class="b-byline" style="margin: 0 0 10px;">
+                The <span class="mono c-sky">QUEUE</span> field is Base64.
+                Decoded, it's just JSON — and the JSON is the thing the box
+                actually runs.
+              </p>
+              <pre class="mono" id="b-json" style="margin: 0; font-size: 12px; line-height: 1.7; color: hsl(0 0% 84%);"></pre>
+            </div>
+
+            <!-- Target: action -->
+            <div class="b-target" data-pane="act">
+              <div class="b-action">
+                <div class="head">Open <span class="strong">table&nbsp;12</span>'s pre-bill.</div>
+                <p class="body">
+                  Once we'd peeled away the bytes, the framing, and the
+                  Base64, what was left fit in one sentence. Action 3 in
+                  this protocol is "pre-bill" — print the receipt for the
+                  guest to look at, but don't close the table yet.
+                </p>
+                <ul>
+                  <li><span>Action</span><span>3 · pre-bill</span></li>
+                  <li><span>Table</span><span>12</span></li>
+                  <li><span>Employee</span><span>19</span></li>
+                  <li><span>Idempotency key</span><span>8ec4&hellip;b912</span></li>
+                  <li><span>Captured at</span><span>17:40 UTC, Jan 20 2025</span></li>
+                  <li><span>Persons at table</span><span>0 (default)</span></li>
+                </ul>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+      <p class="footnote">Click the three buttons in the top-right.</p>
+    </div>
+  </section>
+
+  <!-- ═════════════════  APPROACH C — CONVERSATION  ═════════════════ -->
+  <section class="approach" id="c">
+    <div class="intro">
+      <span class="pill">Approach C · chat thread</span>
+      <h2>Like explaining it over coffee.</h2>
+      <p>
+        Strip out every "TLV", "delimiter", "TCP segment". Tell the story
+        the way you would to a friend who asked, "wait — so how did you
+        figure out what the box was saying?"
+      </p>
+    </div>
+
+    <div class="c-stage" id="c-stage">
+
+      <div class="c-msg them" data-c-step="1">
+        <div class="c-avatar">us</div>
+        <div class="c-body">
+          <div class="c-bubble">
+            We sat between the handheld waiter and the cash box for one
+            evening. <strong>One packet</strong> is enough to start —
+            here's the bytes:
+            <div class="inline-bytes" id="c-bytes-1"></div>
+          </div>
+          <span class="c-time">17:40 — at the bar, table 12 just paid</span>
+        </div>
+      </div>
+
+      <div class="c-msg you" data-c-step="2">
+        <div class="c-body">
+          <div class="c-bubble">
+            That's just gibberish. How is that supposed to mean
+            <em>anything</em>?
+          </div>
+        </div>
+        <div class="c-avatar">u</div>
+      </div>
+
+      <div class="c-msg them" data-c-step="3">
+        <div class="c-avatar">us</div>
+        <div class="c-body">
+          <div class="c-bubble">
+            It was, until we noticed something. Look —
+            <span class="mono c-amber">[NP]</span> shows up every few bytes.
+            And there's <span class="mono c-sky">[EQ]</span> in between.
+            That's the same shape as a comma and an equals sign. So we
+            tried reading it like an address book.
+          </div>
+        </div>
+      </div>
+
+      <div class="c-msg them" data-c-step="4">
+        <div class="c-avatar">us</div>
+        <div class="c-body">
+          <div class="c-bubble">
+            Six fields fall out:
+            <div class="inline-fields" id="c-fields"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="c-msg you" data-c-step="5">
+        <div class="c-body">
+          <div class="c-bubble">
+            OK, that's better. But what's that big QUEUE blob? Looks like
+            more nonsense.
+          </div>
+        </div>
+        <div class="c-avatar">u</div>
+      </div>
+
+      <div class="c-msg them" data-c-step="6">
+        <div class="c-avatar">us</div>
+        <div class="c-body">
+          <div class="c-bubble">
+            That one's <strong>Base64</strong> — a reversible, ASCII-safe
+            way to wrap arbitrary data. Decode it and there's plain JSON
+            inside. <span class="muted">Like a letter inside an envelope.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="c-msg them" data-c-step="7">
+        <div class="c-avatar">us</div>
+        <div class="c-body">
+          <div class="c-bubble">
+            And the JSON, finally, is the actual command:
+            <div class="inline-action">
+              "Open <b>table 12</b>'s pre-bill, on behalf of <b>employee&nbsp;19</b>,
+              with idempotency key <b>8ec4&hellip;</b>. <b>Action 3.</b>"
+            </div>
+          </div>
+          <span class="c-time">that's it — that's the whole thing</span>
+        </div>
+      </div>
+
+      <div class="c-msg you" data-c-step="8">
+        <div class="c-body">
+          <div class="c-bubble tight">
+            …all of that, just to say "print the bill"?
+          </div>
+        </div>
+        <div class="c-avatar">u</div>
+      </div>
+
+      <div class="c-msg them" data-c-step="9">
+        <div class="c-avatar">us</div>
+        <div class="c-body">
+          <div class="c-bubble tight">
+            Yep. <span class="muted">And once you can speak this exact dialect on the wire, the box can't tell you apart from the real handheld.</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ═════════════════  APPROACH D — DETECTIVE'S WALL  ═════════════════ -->
+  <section class="approach" id="d">
+    <div class="intro">
+      <span class="pill">Approach D · pin board</span>
+      <h2>The detective's wall.</h2>
+      <p>
+        Three columns of evidence on the wall. Red string drawn between
+        them, because that's how we actually thought about it: bytes that
+        belonged together, fields that meant something, and the one thing
+        the box was being asked to do. Hover over any item, hover over the
+        notes — they're written by the same person at 1am, in pencil.
+      </p>
+    </div>
+
+    <div class="d-stage">
+      <div class="d-board" id="d-board">
+        <svg class="d-strings" id="d-strings"></svg>
+
+        <div class="d-grid">
+          <div class="d-col">
+            <h3>Evidence — the wire</h3>
+            <div class="stack" id="d-bytes"></div>
+          </div>
+
+          <div class="d-col">
+            <h3>What we read off it</h3>
+            <div class="stack" id="d-fields"></div>
+          </div>
+
+          <div class="d-col">
+            <h3>What it actually was</h3>
+            <div class="stack" id="d-intent"></div>
+          </div>
+        </div>
+
+        <div class="d-note n1">
+          [NP] keeps showing up every few&nbsp;chars.<br/>
+          separator?? &mdash; checked, yes.
+        </div>
+        <div class="d-note n2">
+          QUEUE block ends in "<b>=</b>".<br/>
+          base64 padding. so it's an envelope.
+        </div>
+        <div class="d-note n3">
+          Action 3 → pre-bill.<br/>
+          confirmed against the apk.
+        </div>
+      </div>
+      <p class="footnote">Hover the cards or the sticky notes.</p>
+    </div>
+  </section>
+
+  <!-- ═════════════════  APPROACH E — THE READING LENS  ═════════════════ -->
+  <section class="approach" id="e">
+    <div class="intro">
+      <span class="pill">Approach E · drag the lens</span>
+      <h2>Run a lens across the wire.</h2>
+      <p>
+        One long byte stream, one draggable lens. Whatever the lens is
+        sitting on, it shows you what that region actually meant. No three
+        stages — just one continuous read, like running your finger along
+        a line of foreign script.
+      </p>
+    </div>
+
+    <div class="e-stage">
+      <div class="e-frame">
+        <div class="e-readout">
+          <div class="which" id="e-which">
+            <span class="label">Lens is on</span>
+            <span class="name">POSTQUEUE</span>
+          </div>
+          <div class="copy" id="e-copy">
+            The opcode. <b>"Hey box, I'm posting something to your queue."</b>
+            Always the very first nine bytes of any message of this kind.
+          </div>
+        </div>
+
+        <div class="e-stream-wrap" id="e-wrap">
+          <div class="e-zones" id="e-zones"></div>
+          <div class="e-stream" id="e-stream"></div>
+          <div class="e-lens" id="e-lens" tabindex="0" role="slider" aria-label="Reading lens"></div>
+        </div>
+        <p class="e-tip">Drag the glassy rectangle &mdash; it snaps to whatever zone of the wire it&rsquo;s closest to.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════════════  APPROACH F — FILMSTRIP  ═════════════════ -->
+  <section class="approach" id="f">
+    <div class="intro">
+      <span class="pill">Approach F · filmstrip</span>
+      <h2>Three frames, scrolling sideways.</h2>
+      <p>
+        Read it like a silent film. Each frame is a "title card" with a
+        short caption and a single artifact. Scroll horizontally, or use
+        the dots / arrows. The animation between frames is the scroll
+        itself &mdash; nothing magical, no morphs.
+      </p>
+    </div>
+
+    <div class="f-stage">
+      <div class="f-strip-wrap">
+        <div class="f-strip" id="f-strip">
+
+          <article class="f-frame" data-frame="1">
+            <header class="f-act">
+              <span class="num">Act&nbsp;I</span>
+              <span class="title">A wall of bytes.</span>
+            </header>
+            <div class="f-body">
+              <p>
+                The first thing we ever saw. <span class="accent">482 bytes</span>,
+                no structure, no labels, no clue. The kind of thing you
+                stare at for thirty minutes before anything starts to look
+                like a pattern.
+              </p>
+              <div class="f-art">
+                <div class="f-bytes" id="f-bytes"></div>
+              </div>
+            </div>
+            <p class="f-caption">"&hellip; <em>seemed</em> deliberate. someone designed this."</p>
+          </article>
+
+          <article class="f-frame" data-frame="2">
+            <header class="f-act">
+              <span class="num">Act&nbsp;II</span>
+              <span class="title">A shape emerges.</span>
+            </header>
+            <div class="f-body">
+              <p>
+                Then we noticed the same little markers repeating at
+                intervals. <span class="mono c-amber">[NP]</span> as a
+                comma. <span class="mono c-sky">[EQ]</span> as an equals
+                sign. <span class="mono c-brand">[EOM]</span> at the very
+                end. The bytes broke into exactly six fields.
+              </p>
+              <div class="f-art" id="f-fields"></div>
+            </div>
+            <p class="f-caption">"&hellip; <em>like reading a postcard</em> in a language we'd half-learned."</p>
+          </article>
+
+          <article class="f-frame" data-frame="3">
+            <header class="f-act">
+              <span class="num">Act&nbsp;III</span>
+              <span class="title">"Print the bill."</span>
+            </header>
+            <div class="f-body">
+              <p>
+                Decode the QUEUE field's Base64 and the entire packet
+                collapses into one short instruction. The box was being
+                told to do exactly one thing.
+              </p>
+              <div class="f-art">
+                <div class="f-action">
+                  Open <b>table 12</b>'s pre-bill, on behalf of
+                  <b>employee 19</b>, with idempotency key
+                  <b>8ec4&hellip;b912</b>. <b>Action 3.</b>
+                </div>
+              </div>
+            </div>
+            <p class="f-caption">"&hellip; <em>and we could write the same sentence ourselves.</em>"</p>
+          </article>
+
+        </div>
+      </div>
+
+      <div class="f-nav">
+        <div class="dots" id="f-dots">
+          <button class="on" data-frame="0" aria-label="Frame 1"></button>
+          <button data-frame="1" aria-label="Frame 2"></button>
+          <button data-frame="2" aria-label="Frame 3"></button>
+        </div>
+        <div class="arrows">
+          <button id="f-prev" aria-label="Previous frame">&larr;</button>
+          <button id="f-next" aria-label="Next frame">&rarr;</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════════════  CLOSER  ═════════════════ -->
+  <div class="closer">
+    <h2>Pick one, mix two, throw three away.</h2>
+    <p>
+      Each of these uses the same fixture (table 12 pre-bill) and tells
+      the same three-step story. The only thing that changes is how the
+      reader pulls on it &mdash; with a slider, with tabs, with a chat,
+      with their eyes.
+    </p>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     DATA & BEHAVIOR
+     Single self-contained script. All approaches share the same
+     fixture below.
+     ═══════════════════════════════════════════════════════════ -->
+<script>
+(() => {
+  // ─────────────  fixture  ─────────────
+  // Same shape as lib/fixtures/prebill-trace-12.json
+  const ASCII = "POSTQUEUE[NP]PROTOCOLVERSION[EQ]2[NP]QUEUE[EQ]eyJhcHBWZXJzaW9uIjogMCwgImVtcGxveWVlSWQiOiAxOSwgImd1aWQiOiAiOGVjNDEyYzEtNDc1ZS00NWQzLWEyMjQtZjNmZGZhZWNiOTEyIiwgImlkIjogOCwgIm9yZGVycyI6IFtdLCAicGVyc29uc051bWJlciI6IDAsICJzdGF0dXMiOiAxLCAidGFibGUiOiAxMiwgInRpbWUiOiAxNzM3Mzk0ODEyMDEyLCAiQWN0aW9uIjogM30=[NP]TOKEN[EQ]7a3f9c2e-1d4b-4f6a-9b8e-2c5d8f1a0b7c[NP]MESSAGETYPE[EQ]XDPeople.Entities.PostActionMessage[NP]MESSAGEID[EQ]p12e4b8a-1f29-4a7c-9e6b-4fa02c813e12[EOM]";
+
+  // 80 bytes is enough to make the visual grid feel substantial without
+  // dominating the layer. The Stage 1 view in the production component
+  // uses the full 482; we trim because we're showing it as a textured
+  // backdrop, not as forensic evidence.
+  const ASCII_80 = ASCII.slice(0, 80);
+
+  const FIELDS = [
+    { key: "POSTQUEUE", val: "(opcode — what we want done)", color: "amber", note: "the verb" },
+    { key: "PROTOCOLVERSION", val: "2", color: "muted", note: "version tag" },
+    { key: "QUEUE", val: "<base64 envelope · 256 B>", color: "sky", note: "the actual payload, wrapped" },
+    { key: "TOKEN", val: "7a3f9c2e-1d4b-4f6a-9b8e-2c5d8f1a0b7c", color: "emerald", note: "the box's session token" },
+    { key: "MESSAGETYPE", val: "XDPeople.Entities.PostActionMessage", color: "muted", note: "C# class name leak" },
+    { key: "MESSAGEID", val: "p12e4b8a-1f29-4a7c-9e6b-4fa02c813e12", color: "brand", note: "idempotency key" }
+  ];
+
+  const DECODED = {
+    appVersion: 0,
+    employeeId: 19,
+    guid: "8ec412c1-475e-45d3-a224-f3fdfaecb912",
+    id: 8,
+    orders: [],
+    personsNumber: 0,
+    status: 1,
+    table: 12,
+    time: 1737394812012,
+    Action: 3
+  };
+
+  const DECODED_NOTES = {
+    Action: "PREBILL · same as lib/pos/constants.ts",
+    table: "the table the guest is sitting at",
+    employeeId: "demo employee",
+    guid: "idempotency key — re-sending is safe",
+    time: "Jan 20 2025, 17:40 UTC",
+    status: "1 = active",
+    appVersion: "client version",
+    personsNumber: "0 = default",
+    orders: "items already on the table",
+    id: "queue position"
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // APPROACH A — SCRUBBER
+  // ─────────────────────────────────────────────────────────────
+  const A_BYTES = ASCII_80; // characters — we'll display them as the cells
+  const aGrid = document.getElementById("a-grid");
+  const aGrouped = document.getElementById("a-grouped");
+  const aDecoded = document.getElementById("a-decoded");
+  const aSlider = document.getElementById("a-slider");
+  const aCanvas = document.getElementById("a-canvas");
+  const aCaption = document.getElementById("a-caption");
+  const aStops = document.querySelectorAll(".a-stops button");
+
+  // build the byte grid with field-aware coloring (so once you cross 33%
+  // you can still see the pre-grouped colors fading in)
+  function fieldColorFor(idx) {
+    // simple lookup: which field bucket does this byte index fall into?
+    const a = A_BYTES;
+    const opcodeEnd = "POSTQUEUE".length;
+    if (idx < opcodeEnd) return "amber";
+    const queueStart = a.indexOf("QUEUE[EQ]");
+    if (queueStart >= 0 && idx >= queueStart && idx < queueStart + 16) return "sky";
+    return null;
+  }
+  for (let i = 0; i < A_BYTES.length; i++) {
+    const cell = document.createElement("span");
+    cell.className = "b";
+    const ch = A_BYTES[i];
+    cell.textContent = (ch === "\n" ? "\\n" : ch);
+    const color = fieldColorFor(i);
+    if (color) cell.classList.add(color);
+    aGrid.appendChild(cell);
+  }
+
+  // build the grouped row view
+  for (const f of FIELDS) {
+    const row = document.createElement("div");
+    row.className = "a-row f-" + f.color;
+    row.innerHTML = `<div class="k">${f.key}</div><div class="v">${f.val}</div>`;
+    aGrouped.appendChild(row);
+  }
+
+  // build the decoded JSON-ish view (annotated)
+  const order = ["Action", "table", "employeeId", "guid", "id", "orders", "personsNumber", "status", "time", "appVersion"];
+  for (const k of order) {
+    const v = DECODED[k];
+    const display = Array.isArray(v) ? "[]" : (typeof v === "string" ? '"' + v + '"' : v);
+    const note = DECODED_NOTES[k] || "";
+    const line = document.createElement("div");
+    line.className = "line" + (k === "Action" ? " action" : "");
+    line.innerHTML = `<span class="key">${k}</span><span class="val">${display}</span><span class="note">${note}</span>`;
+    aDecoded.appendChild(line);
+  }
+
+  const A_CAPTIONS = [
+    `<span><b>One pre-bill, on the wire.</b> 482 bytes. No structure visible to the naked eye.</span>`,
+    `<span><b>Same bytes, grouped at the markers.</b> [NP] is a comma. [EQ] is an equals. Six fields, like an address book.</span>`,
+    `<span><b>The QUEUE field decoded.</b> Print the bill on table 12 — that's the whole packet.</span>`
+  ];
+
+  const aLayers = [
+    document.querySelector(".a-layer-bytes"),
+    document.querySelector(".a-layer-grouped"),
+    document.querySelector(".a-layer-decoded")
+  ];
+  // tent-function opacity peaks: 0.0, 0.5, 1.0
+  function tent(t, center) {
+    return Math.max(0, 1 - Math.abs(t - center) * 2.6);
+  }
+  function setT(t /* 0..1 */) {
+    aCanvas.style.setProperty("--t", t.toFixed(3));
+    const peaks = [0, 0.5, 1];
+    aLayers.forEach((layer, i) => {
+      const o = tent(t, peaks[i]);
+      layer.style.opacity = o.toFixed(3);
+      const dist = Math.abs(t - peaks[i]);
+      layer.style.transform = `scale(${(1 - dist * 0.05).toFixed(3)})`;
+      layer.style.filter = `blur(${(dist * 1.4).toFixed(2)}px)`;
+    });
+    // update caption
+    let idx = 0;
+    if (t > 0.66) idx = 2;
+    else if (t > 0.33) idx = 1;
+    aCaption.innerHTML = A_CAPTIONS[idx];
+    // update stop indicators
+    aStops.forEach((b, i) => b.classList.toggle("on", i === idx));
+  }
+  aSlider.addEventListener("input", () => setT(aSlider.value / 100));
+  aStops.forEach((b) => {
+    b.addEventListener("click", () => {
+      const v = parseInt(b.dataset.stop, 10);
+      aSlider.value = v;
+      setT(v / 100);
+    });
+  });
+  setT(0);
+
+  // ─────────────────────────────────────────────────────────────
+  // APPROACH B — TRANSLATION PANE
+  // ─────────────────────────────────────────────────────────────
+  const bSource = document.getElementById("b-source");
+  const bMsg = document.getElementById("b-msg");
+  const bJson = document.getElementById("b-json");
+  const bTabs = document.querySelectorAll(".b-tabs button");
+  const bPanes = document.querySelectorAll(".b-target");
+
+  // render the wire as a colored ASCII string with delimiter highlights
+  // we tokenize once with the same logic as the production component
+  const NP = "[NP]", EQ = "[EQ]", EOM = "[EOM]";
+  function tokenizeAscii(ascii) {
+    const delims = [NP, EQ, EOM];
+    const tokens = [];
+    let cursor = 0;
+    while (cursor < ascii.length) {
+      let nextDelim = null, nextIdx = -1;
+      for (const d of delims) {
+        const idx = ascii.indexOf(d, cursor);
+        if (idx !== -1 && (nextIdx === -1 || idx < nextIdx)) {
+          nextIdx = idx;
+          nextDelim = d;
+        }
+      }
+      if (nextDelim === null || nextIdx === -1) {
+        tokens.push({ kind: "text", value: ascii.slice(cursor) });
+        break;
+      }
+      if (nextIdx > cursor) {
+        tokens.push({ kind: "text", value: ascii.slice(cursor, nextIdx) });
+      }
+      tokens.push({ kind: "delim", value: nextDelim });
+      cursor = nextIdx + nextDelim.length;
+    }
+    return tokens;
+  }
+  const tokens = tokenizeAscii(ASCII);
+  let bSourceHtml = "";
+  for (const t of tokens) {
+    if (t.kind === "delim") {
+      const cls = t.value === EOM ? "brand" : (t.value === EQ ? "sky" : "amber");
+      bSourceHtml += `<span class="h ${cls}">${t.value}</span>`;
+    } else {
+      // for QUEUE base64, dim it a little so the field markers pop
+      let v = t.value;
+      // keep a few field names highlighted via a sky tint
+      v = v.replace(/(POSTQUEUE|PROTOCOLVERSION|QUEUE|TOKEN|MESSAGETYPE|MESSAGEID)/g,
+        (m) => `<span class="h sky">${m}</span>`);
+      bSourceHtml += v;
+    }
+  }
+  bSource.innerHTML = bSourceHtml;
+
+  // build the message rows
+  const COLOR_FOR_KEY = {
+    POSTQUEUE: "amber", PROTOCOLVERSION: "muted", QUEUE: "sky",
+    TOKEN: "emerald", MESSAGETYPE: "muted", MESSAGEID: "brand"
+  };
+  function bMsgRow(k, v) {
+    const isFirst = k === "POSTQUEUE";
+    const color = COLOR_FOR_KEY[k];
+    const valCls = (color === "amber") ? "amber" : (color === "brand" ? "brand" : "");
+    return `<div class="b-msg-row">
+      <span class="key">${k}</span>
+      <span class="eq">${isFirst ? "" : "EQ"}</span>
+      <span class="val ${valCls}">${v}</span>
+    </div>`;
+  }
+  const bMsgValues = {
+    POSTQUEUE: "(opcode)",
+    PROTOCOLVERSION: "2",
+    QUEUE: "&lt;base64 · 256 B&gt;",
+    TOKEN: "7a3f9c2e-1d4b-4f6a-9b8e-2c5d8f1a0b7c",
+    MESSAGETYPE: "XDPeople.Entities.PostActionMessage",
+    MESSAGEID: "p12e4b8a-1f29-4a7c-9e6b-4fa02c813e12"
+  };
+  bMsg.innerHTML = ["POSTQUEUE", "PROTOCOLVERSION", "QUEUE", "TOKEN", "MESSAGETYPE", "MESSAGEID"]
+    .map(k => bMsgRow(k, bMsgValues[k])).join("");
+
+  // build the JSON pretty-print
+  bJson.textContent = JSON.stringify(DECODED, null, 2);
+
+  // tab behavior
+  bTabs.forEach((b) => {
+    b.addEventListener("click", () => {
+      bTabs.forEach(x => x.classList.remove("on"));
+      bPanes.forEach(p => p.classList.remove("on"));
+      b.classList.add("on");
+      const target = b.dataset.target;
+      const pane = document.querySelector(`.b-target[data-pane="${target}"]`);
+      if (pane) pane.classList.add("on");
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // APPROACH C — CONVERSATION
+  // ─────────────────────────────────────────────────────────────
+  const cBytes1 = document.getElementById("c-bytes-1");
+  const cFields = document.getElementById("c-fields");
+  // dump the first ~150 chars of ASCII as the "raw" bubble content
+  cBytes1.textContent = ASCII.slice(0, 220) + " …";
+  // build the inline fields
+  cFields.innerHTML = FIELDS.map(f => {
+    const v = (f.key === "QUEUE")
+      ? "&lt;base64, opens up later&gt;"
+      : (f.key === "POSTQUEUE")
+        ? "(the verb)"
+        : f.val;
+    return `<div class="row"><span class="k">${f.key}</span><span class="v">${v}</span></div>`;
+  }).join("");
+
+  // staggered reveal on scroll
+  const cMsgs = document.querySelectorAll(".c-msg");
+  const cObserver = new IntersectionObserver((entries) => {
+    entries.forEach((e) => {
+      if (e.isIntersecting) {
+        // small per-message delay so a burst of in-views feels like the
+        // thread is filling in, not slamming
+        const step = parseInt(e.target.dataset.cStep || "0", 10);
+        setTimeout(() => e.target.classList.add("in-view"), step * 60);
+        cObserver.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.15 });
+  cMsgs.forEach(m => cObserver.observe(m));
+
+  // ─────────────────────────────────────────────────────────────
+  // APPROACH D — DETECTIVE'S WALL
+  // ─────────────────────────────────────────────────────────────
+  const dBytes = document.getElementById("d-bytes");
+  const dFields = document.getElementById("d-fields");
+  const dIntent = document.getElementById("d-intent");
+  const dStringsSvg = document.getElementById("d-strings");
+  const dBoard = document.getElementById("d-board");
+
+  // each "row" is a stable id used to draw red string between matching cards
+  const D_ROWS = [
+    { id: "opcode", left: { lbl: "OPCODE",  text: "POSTQUEUE",  color: "amber" }, mid: { lbl: "FIELD", text: "POSTQUEUE",      color: "amber" }, right: { lbl: "INTENT", text: "the verb · what to do", color: "amber" } },
+    { id: "ver",    left: { lbl: "BYTES",   text: "PROTOCOLVERSION[EQ]2", color: "muted" }, mid: { lbl: "FIELD", text: "PROTOCOLVERSION = 2", color: "muted" }, right: { lbl: "INTENT", text: "speaks v2 of this dialect", color: "muted" } },
+    { id: "queue",  left: { lbl: "BYTES",   text: "QUEUE[EQ]<base64 …>",  color: "sky" }, mid: { lbl: "FIELD", text: "QUEUE = base64 envelope", color: "sky" }, right: { lbl: "INTENT", text: "the actual command, wrapped", color: "sky" } },
+    { id: "token",  left: { lbl: "BYTES",   text: "TOKEN[EQ]7a3f…",       color: "emerald" }, mid: { lbl: "FIELD", text: "TOKEN = uuid", color: "emerald" }, right: { lbl: "INTENT", text: "the session — proves we're known", color: "emerald" } },
+    { id: "type",   left: { lbl: "BYTES",   text: "MESSAGETYPE[EQ]…",     color: "muted" }, mid: { lbl: "FIELD", text: "MESSAGETYPE", color: "muted" }, right: { lbl: "INTENT", text: "C# class name leak (helpful)", color: "muted" } },
+    { id: "id",     left: { lbl: "BYTES",   text: "MESSAGEID[EQ]p12e…",   color: "brand" }, mid: { lbl: "FIELD", text: "MESSAGEID = uuid", color: "brand" }, right: { lbl: "INTENT", text: "idempotency — replay is safe", color: "brand" } }
+  ];
+
+  function makeCard(node, rowId, colName) {
+    const div = document.createElement("div");
+    div.className = "d-card " + (node.color === "muted" ? "" : node.color);
+    div.dataset.row = rowId;
+    div.dataset.col = colName;
+    div.innerHTML = `<span class="pin"></span><div class="small">${node.lbl}</div><div>${node.text}</div>`;
+    return div;
+  }
+  for (const r of D_ROWS) {
+    dBytes.appendChild(makeCard(r.left, r.id, "left"));
+    dFields.appendChild(makeCard(r.mid, r.id, "mid"));
+    dIntent.appendChild(makeCard(r.right, r.id, "right"));
+  }
+
+  // draw red strings between matching cards (left→mid→right) using SVG
+  function drawStrings() {
+    const board = dBoard.getBoundingClientRect();
+    dStringsSvg.setAttribute("width", board.width);
+    dStringsSvg.setAttribute("height", board.height);
+    dStringsSvg.innerHTML = "";
+
+    for (const r of D_ROWS) {
+      const a = dBoard.querySelector(`.d-card[data-row="${r.id}"][data-col="left"]`);
+      const b = dBoard.querySelector(`.d-card[data-row="${r.id}"][data-col="mid"]`);
+      const c = dBoard.querySelector(`.d-card[data-row="${r.id}"][data-col="right"]`);
+      if (!a || !b || !c) continue;
+      const segs = [[a, b], [b, c]];
+      for (const [from, to] of segs) {
+        const fr = from.getBoundingClientRect();
+        const tr = to.getBoundingClientRect();
+        const x1 = fr.right - board.left;
+        const y1 = fr.top + fr.height / 2 - board.top;
+        const x2 = tr.left - board.left;
+        const y2 = tr.top + tr.height / 2 - board.top;
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", x1);
+        line.setAttribute("y1", y1);
+        line.setAttribute("x2", x2);
+        line.setAttribute("y2", y2);
+        dStringsSvg.appendChild(line);
+      }
+    }
+  }
+  drawStrings();
+  window.addEventListener("resize", drawStrings);
+  // redraw once images/fonts settle
+  setTimeout(drawStrings, 60);
+  setTimeout(drawStrings, 300);
+
+  // ─────────────────────────────────────────────────────────────
+  // APPROACH E — THE READING LENS
+  // ─────────────────────────────────────────────────────────────
+  const eStream = document.getElementById("e-stream");
+  const eZones = document.getElementById("e-zones");
+  const eLens = document.getElementById("e-lens");
+  const eWrap = document.getElementById("e-wrap");
+  const eWhich = document.getElementById("e-which");
+  const eCopy = document.getElementById("e-copy");
+
+  // a hand-curated narrative byte slice — covers the whole packet but
+  // only one representative chunk of the long base64 / uuids
+  const E_TEXT =
+    "POSTQUEUE [NP] PROTOCOLVERSION [EQ] 2 [NP] QUEUE [EQ] eyJ…(base64)…M30= [NP] TOKEN [EQ] 7a3f-…-0b7c [NP] MESSAGETYPE [EQ] XDPeople.PostActionMessage [NP] MESSAGEID [EQ] p12e-…-3e12 [EOM]";
+
+  // Each "zone" is a labeled span of characters in E_TEXT. We compute
+  // their pixel bounds after layout so the lens can snap to them.
+  const E_ZONE_DEFS = [
+    { name: "POSTQUEUE",           color: "amber",   match: /POSTQUEUE/, copy: `The opcode. <b>"Hey box, I'm posting something to your queue."</b> Always the very first nine bytes of any message of this kind.` },
+    { name: "[NP]",                color: "muted",   match: /\[NP\]/,    copy: `A separator — "next field". Like a comma between entries in an address book. Repeats throughout.` },
+    { name: "PROTOCOLVERSION = 2", color: "muted",   match: /PROTOCOLVERSION \[EQ\] 2/, copy: `Version tag. The handheld is speaking <b>v2</b> of this protocol. Drift here would mean a mismatched client.` },
+    { name: "QUEUE = <base64>",    color: "sky",     match: /QUEUE \[EQ\] eyJ…\(base64\)…M30=/, copy: `The actual payload, wrapped in <b>Base64</b>. An envelope. Decode it and you get plain JSON — the real command.` },
+    { name: "TOKEN = uuid",        color: "emerald", match: /TOKEN \[EQ\] 7a3f-…-0b7c/, copy: `The session token. The handheld got this earlier from a separate auth call; it proves it's a known device.` },
+    { name: "MESSAGETYPE",         color: "muted",   match: /MESSAGETYPE \[EQ\] XDPeople\.PostActionMessage/, copy: `<b>A leaked C# class name.</b> Mildly embarrassing for the vendor, very helpful for us — we now know how their server routes this.` },
+    { name: "MESSAGEID = uuid",    color: "brand",   match: /MESSAGEID \[EQ\] p12e-…-3e12/, copy: `<b>Idempotency key.</b> Replay-safe. Send the same message twice and the box will only act once.` },
+    { name: "[EOM]",               color: "brand",   match: /\[EOM\]/, copy: `End of message. Last five bytes. The TCP framing has no length prefix — this terminator is the only signal that we're done.` }
+  ];
+
+  // render each character as a positioned span; record byte index ranges
+  // for every zone
+  const E_CHARS = E_TEXT.split("");
+  const E_CHAR_W = 8.4; // approx px per mono character at 12px
+  // we measure after render to be exact
+  const charNodes = [];
+  E_CHARS.forEach((ch, i) => {
+    const span = document.createElement("span");
+    span.className = "e-byte";
+    span.textContent = (ch === " " ? "·" : ch);
+    if (ch === " ") span.style.opacity = "0.3";
+    span.style.left = (i * E_CHAR_W) + "px";
+    span.dataset.idx = i;
+    eStream.appendChild(span);
+    charNodes.push(span);
+  });
+  // total stream width = chars × char width
+  const E_STREAM_W = E_CHARS.length * E_CHAR_W;
+  eStream.style.width = E_STREAM_W + "px";
+
+  // compute zone ranges in character indices
+  const E_ZONES = [];
+  for (const def of E_ZONE_DEFS) {
+    const m = def.match.exec(E_TEXT);
+    if (!m) continue;
+    const start = m.index;
+    const end = start + m[0].length;
+    E_ZONES.push({ ...def, start, end });
+  }
+
+  // tick marks between zones
+  for (const z of E_ZONES) {
+    const tick = document.createElement("span");
+    tick.className = "e-zone-tick";
+    tick.style.left = (z.start * E_CHAR_W) + "px";
+    eZones.appendChild(tick);
+  }
+
+  // lens position is the LEFT edge of the lens within the stream coords.
+  // we make the lens width adapt slightly: it's wide enough to cover
+  // the active zone comfortably, but no narrower than 140 px.
+  let lensLeft = 0;
+  let dragging = false;
+
+  function updateLens() {
+    eLens.style.left = lensLeft + "px";
+    // figure out what zone the lens center is on
+    const lensCenter = lensLeft + eLens.offsetWidth / 2;
+    const lensCenterChar = lensCenter / E_CHAR_W;
+    let active = E_ZONES[0];
+    for (const z of E_ZONES) {
+      if (lensCenterChar >= z.start && lensCenterChar <= z.end) { active = z; break; }
+      // distance fallback
+      if (Math.abs(lensCenterChar - (z.start + z.end) / 2) < Math.abs(lensCenterChar - (active.start + active.end) / 2)) {
+        active = z;
+      }
+    }
+    // recolor characters in/out of the active zone
+    charNodes.forEach((n, i) => {
+      n.classList.remove("in-lens", "amber", "sky", "emerald", "brand", "muted");
+      if (i >= active.start && i < active.end) {
+        n.classList.add("in-lens", active.color);
+      }
+    });
+    // update the readout
+    const wc = eWhich;
+    wc.classList.remove("amber", "sky", "emerald", "brand", "muted");
+    wc.classList.add(active.color);
+    wc.querySelector(".name").textContent = active.name;
+    eCopy.innerHTML = active.copy;
+  }
+
+  function setLensFromPointerX(clientX) {
+    const rect = eStream.getBoundingClientRect();
+    let raw = clientX - rect.left - eLens.offsetWidth / 2;
+    raw = Math.max(0, Math.min(E_STREAM_W - eLens.offsetWidth, raw));
+    lensLeft = raw;
+    eLens.classList.add("has-moved");
+    updateLens();
+  }
+
+  function scrollLensIntoView() {
+    const wrapRect = eWrap.getBoundingClientRect();
+    const lensRect = eLens.getBoundingClientRect();
+    const margin = 24;
+    if (lensRect.left < wrapRect.left + margin) {
+      eWrap.scrollBy({ left: lensRect.left - wrapRect.left - margin, behavior: "smooth" });
+    } else if (lensRect.right > wrapRect.right - margin) {
+      eWrap.scrollBy({ left: lensRect.right - wrapRect.right + margin, behavior: "smooth" });
+    }
+  }
+
+  // initial: position over POSTQUEUE
+  // (use a setTimeout because we need eStream.getBoundingClientRect for snap)
+  setTimeout(() => {
+    const z = E_ZONES[0];
+    lensLeft = (z.start + (z.end - z.start) / 2) * E_CHAR_W - eLens.offsetWidth / 2;
+    lensLeft = Math.max(0, lensLeft);
+    updateLens();
+  }, 30);
+
+  eLens.addEventListener("pointerdown", (ev) => {
+    dragging = true;
+    eLens.setPointerCapture(ev.pointerId);
+    setLensFromPointerX(ev.clientX);
+  });
+  eLens.addEventListener("pointermove", (ev) => {
+    if (!dragging) return;
+    setLensFromPointerX(ev.clientX);
+  });
+  const stopDrag = (ev) => {
+    if (!dragging) return;
+    dragging = false;
+    try { eLens.releasePointerCapture(ev.pointerId); } catch {}
+    // snap to the closest zone center
+    const lensCenter = lensLeft + eLens.offsetWidth / 2;
+    const lensCenterChar = lensCenter / E_CHAR_W;
+    let best = E_ZONES[0];
+    let bestDist = Infinity;
+    for (const z of E_ZONES) {
+      const c = (z.start + z.end) / 2;
+      const d = Math.abs(c - lensCenterChar);
+      if (d < bestDist) { bestDist = d; best = z; }
+    }
+    const snapTarget = ((best.start + best.end) / 2) * E_CHAR_W - eLens.offsetWidth / 2;
+    lensLeft = Math.max(0, Math.min(E_STREAM_W - eLens.offsetWidth, snapTarget));
+    eLens.style.transition = "left 320ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+    updateLens();
+    setTimeout(() => { eLens.style.transition = ""; }, 360);
+  };
+  eLens.addEventListener("pointerup", stopDrag);
+  eLens.addEventListener("pointercancel", stopDrag);
+
+  // also let users click on the stream to send the lens there
+  eWrap.addEventListener("click", (ev) => {
+    if (ev.target === eLens) return;
+    setLensFromPointerX(ev.clientX);
+    stopDrag({ pointerId: -1 });
+  });
+
+  // keyboard support: arrows hop between zones
+  eLens.addEventListener("keydown", (ev) => {
+    const lensCenter = lensLeft + eLens.offsetWidth / 2;
+    const lensCenterChar = lensCenter / E_CHAR_W;
+    let zi = 0;
+    let bestDist = Infinity;
+    E_ZONES.forEach((z, i) => {
+      const c = (z.start + z.end) / 2;
+      const d = Math.abs(c - lensCenterChar);
+      if (d < bestDist) { bestDist = d; zi = i; }
+    });
+    if (ev.key === "ArrowRight") zi = Math.min(E_ZONES.length - 1, zi + 1);
+    else if (ev.key === "ArrowLeft") zi = Math.max(0, zi - 1);
+    else return;
+    ev.preventDefault();
+    const z = E_ZONES[zi];
+    const target = ((z.start + z.end) / 2) * E_CHAR_W - eLens.offsetWidth / 2;
+    lensLeft = Math.max(0, Math.min(E_STREAM_W - eLens.offsetWidth, target));
+    eLens.style.transition = "left 320ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+    eLens.classList.add("has-moved");
+    updateLens();
+    scrollLensIntoView();
+    setTimeout(() => { eLens.style.transition = ""; }, 360);
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // APPROACH F — FILMSTRIP
+  // ─────────────────────────────────────────────────────────────
+  const fStrip = document.getElementById("f-strip");
+  const fBytes = document.getElementById("f-bytes");
+  const fFields = document.getElementById("f-fields");
+  const fDots = document.querySelectorAll("#f-dots button");
+  const fPrev = document.getElementById("f-prev");
+  const fNext = document.getElementById("f-next");
+
+  // act 1 art: long uninterrupted byte stream
+  fBytes.textContent = ASCII;
+  // act 2 art: the six field cards
+  fFields.innerHTML = FIELDS.map(f => {
+    const v = (f.key === "QUEUE")
+      ? "&lt;base64 envelope · 256 B&gt;"
+      : (f.key === "POSTQUEUE")
+        ? "(opcode — what to do)"
+        : f.val;
+    return `<div class="f-card ${f.color === "muted" ? "" : f.color}"><span class="k">${f.key}</span><span class="v">${v}</span></div>`;
+  }).join("");
+
+  // dot navigation + arrow buttons + scroll position sync
+  function scrollToFrame(i) {
+    const frame = fStrip.children[i];
+    if (!frame) return;
+    fStrip.scrollTo({ left: frame.offsetLeft, behavior: "smooth" });
+  }
+  fDots.forEach((d) => {
+    d.addEventListener("click", () => scrollToFrame(parseInt(d.dataset.frame, 10)));
+  });
+  fPrev.addEventListener("click", () => {
+    const i = activeFrame();
+    scrollToFrame(Math.max(0, i - 1));
+  });
+  fNext.addEventListener("click", () => {
+    const i = activeFrame();
+    scrollToFrame(Math.min(2, i + 1));
+  });
+  function activeFrame() {
+    // closest by scrollLeft
+    const sl = fStrip.scrollLeft;
+    let best = 0, bestDist = Infinity;
+    [...fStrip.children].forEach((c, i) => {
+      const d = Math.abs(c.offsetLeft - sl);
+      if (d < bestDist) { bestDist = d; best = i; }
+    });
+    return best;
+  }
+  function syncDots() {
+    const i = activeFrame();
+    fDots.forEach((d, di) => d.classList.toggle("on", di === i));
+  }
+  fStrip.addEventListener("scroll", () => {
+    // throttle via rAF
+    if (fStrip._rafPending) return;
+    fStrip._rafPending = true;
+    requestAnimationFrame(() => { fStrip._rafPending = false; syncDots(); });
+  });
+  syncDots();
+
+})();
+</script>
+</body>
+</html>

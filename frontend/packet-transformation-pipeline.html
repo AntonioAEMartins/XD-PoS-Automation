@@ -1,0 +1,1474 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Packet pipeline — approach B iterations</title>
+<style>
+  :root {
+    --bg: hsl(0 0% 4%);
+    --fg: hsl(0 0% 92%);
+    --muted: hsl(0 0% 10%);
+    --muted-fg: hsl(0 0% 62%);
+    --card: hsl(0 0% 6%);
+    --card-2: hsl(0 0% 8%);
+    --border: hsl(0 0% 15%);
+    --border-strong: hsl(0 0% 22%);
+    --radius: 12px;
+
+    --amber: #f5b945;
+    --amber-soft: #f5b94522;
+    --amber-glow: #f5b94538;
+    --sky: #56b8ef;
+    --sky-soft: #56b8ef22;
+    --sky-glow: #56b8ef38;
+    --emerald: #4cc69a;
+    --emerald-soft: #4cc69a22;
+    --emerald-glow: #4cc69a38;
+    --brand: #a78bfa;
+    --brand-soft: #a78bfa22;
+    --brand-glow: #a78bfa38;
+    --slate: hsl(0 0% 70%);
+    --slate-soft: hsl(0 0% 100% / 0.05);
+    --slate-glow: hsl(0 0% 100% / 0.1);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    line-height: 1.55;
+  }
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+  }
+  a { color: inherit; }
+
+  .page {
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 80px 24px 200px;
+  }
+  header h1 {
+    font-size: clamp(40px, 6vw, 64px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    margin: 16px 0 18px;
+    text-wrap: balance;
+  }
+  header p {
+    color: var(--muted-fg);
+    max-width: 64ch;
+    margin: 0;
+    font-size: 16px;
+  }
+  header p strong { color: var(--fg); font-weight: 500; }
+  .toc {
+    margin: 56px 0 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .toc a {
+    background: var(--card);
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    text-decoration: none;
+    transition: background 120ms ease;
+  }
+  .toc a:hover { background: hsl(0 0% 9%); }
+  .toc a strong { font-size: 15px; font-weight: 600; }
+  .toc a span { color: var(--muted-fg); font-size: 13px; }
+
+  .approach {
+    margin-top: 140px;
+    border-top: 1px solid var(--border);
+    padding-top: 64px;
+  }
+  .approach > .intro {
+    max-width: 64ch;
+    margin: 0 auto 56px;
+    padding: 0 24px;
+    text-align: center;
+  }
+  .approach > .intro h2 {
+    font-size: clamp(28px, 3.5vw, 40px);
+    margin: 12px 0 16px;
+    letter-spacing: -0.015em;
+    line-height: 1.1;
+    font-weight: 600;
+  }
+  .approach > .intro p {
+    color: var(--muted-fg);
+    margin: 0;
+  }
+  .approach > .intro p strong { color: var(--fg); font-weight: 500; }
+  .pill {
+    display: inline-block;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    background: var(--card);
+  }
+  .footnote {
+    color: var(--muted-fg);
+    font-size: 12px;
+    text-align: center;
+    margin-top: 18px;
+    font-style: italic;
+  }
+
+  /* ─────────────  STAGE PRIMITIVES (shared across variations)  ───────────── */
+
+  /* a "stage" is one of the four panels (HEX, ASCII, FIELDS, ACTION) */
+  .stage {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px 18px;
+    min-height: 0;
+    overflow: hidden;
+    position: relative;
+  }
+  .stage-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .stage-head .label {
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .stage-head .label .num {
+    color: hsl(0 0% 36%);
+    font-weight: 500;
+  }
+  .stage-head .meta {
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--muted-fg);
+    font-family: ui-monospace, monospace;
+  }
+  .stage-title {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: var(--fg);
+  }
+  .stage-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: hsl(0 0% 4%);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-family: ui-monospace, monospace;
+    font-size: 11.5px;
+    line-height: 1.7;
+    color: hsl(0 0% 78%);
+  }
+
+  /* ── stage 1 — HEX ── */
+  .hex-grid {
+    display: grid;
+    grid-template-columns: repeat(16, 1fr);
+    gap: 2px 4px;
+    font-family: ui-monospace, monospace;
+    font-size: 10.5px;
+    line-height: 1.4;
+    word-break: break-all;
+  }
+  .hex-grid .hb {
+    text-align: center;
+    padding: 1px 0;
+    border-radius: 2px;
+    color: hsl(0 0% 60%);
+    transition: background 200ms ease, color 200ms ease, transform 220ms ease;
+  }
+  .hex-grid .hb.amber { color: var(--amber); }
+  .hex-grid .hb.sky { color: var(--sky); }
+  .hex-grid .hb.emerald { color: var(--emerald); }
+  .hex-grid .hb.brand { color: var(--brand); }
+  .hex-grid .hb.slate { color: hsl(0 0% 86%); }
+  .hex-grid .hb.delim { color: hsl(0 0% 38%); }
+
+  /* ── stage 2 — ASCII / decoded TLV ── */
+  .ascii-stream {
+    font-family: ui-monospace, monospace;
+    font-size: 11.5px;
+    line-height: 1.85;
+    color: hsl(0 0% 78%);
+    word-break: break-all;
+  }
+  .ascii-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    margin: 0 2px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    vertical-align: middle;
+    line-height: 1.4;
+    transition: background 200ms ease, border-color 200ms ease, color 200ms ease;
+  }
+  .ascii-tag.np { color: var(--amber); border-color: var(--amber-soft); background: var(--amber-soft); }
+  .ascii-tag.eq { color: var(--sky); border-color: var(--sky-soft); background: var(--sky-soft); }
+  .ascii-tag.eom { color: var(--brand); border-color: var(--brand-soft); background: var(--brand-soft); }
+  .ascii-key { color: var(--sky); }
+  .ascii-key.k-postqueue { color: var(--amber); font-weight: 600; }
+  .ascii-key.k-messageid { color: var(--brand); }
+  .ascii-key.k-token { color: var(--emerald); }
+  .ascii-val { color: hsl(0 0% 82%); }
+  .ascii-val.b64 { color: hsl(0 0% 62%); }
+
+  /* ── stage 3 — FIELDS ── */
+  .fields-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+  }
+  .field-row {
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 12px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: hsl(0 0% 5%);
+    align-items: center;
+    transition: background 200ms ease, border-color 200ms ease, transform 200ms ease;
+  }
+  .field-row .k {
+    font-family: ui-monospace, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.1em;
+    color: var(--muted-fg);
+    font-weight: 600;
+  }
+  .field-row .v {
+    font-family: ui-monospace, monospace;
+    font-size: 11.5px;
+    color: hsl(0 0% 80%);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .field-row.f-amber { border-left: 2px solid var(--amber); }
+  .field-row.f-amber .k { color: var(--amber); }
+  .field-row.f-sky { border-left: 2px solid var(--sky); }
+  .field-row.f-sky .k { color: var(--sky); }
+  .field-row.f-emerald { border-left: 2px solid var(--emerald); }
+  .field-row.f-emerald .k { color: var(--emerald); }
+  .field-row.f-brand { border-left: 2px solid var(--brand); }
+  .field-row.f-brand .k { color: var(--brand); }
+  .field-row.f-slate .v { color: hsl(0 0% 78%); }
+
+  /* ── stage 4 — ACTION ── */
+  .action-card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .action-headline {
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: var(--fg);
+    line-height: 1.2;
+  }
+  .action-headline .strong {
+    color: var(--amber);
+    font-weight: 700;
+  }
+  .action-headline .pulse {
+    background: var(--amber-soft);
+    padding: 0 4px;
+    border-radius: 4px;
+    transition: background 200ms ease;
+  }
+  .action-summary {
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    color: hsl(0 0% 84%);
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  .action-summary span[data-field] {
+    border-bottom: 1px dotted hsl(0 0% 34%);
+    padding-bottom: 1px;
+    cursor: help;
+    transition: color 200ms ease, border-color 200ms ease, background 200ms ease;
+  }
+  .action-summary span.f-amber { color: var(--amber); }
+  .action-summary span.f-sky { color: var(--sky); }
+  .action-summary span.f-emerald { color: var(--emerald); }
+  .action-summary span.f-brand { color: var(--brand); }
+  .action-facts {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 22px;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+  }
+  .action-facts li {
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px dashed hsl(0 0% 14%);
+    padding: 5px 0;
+    font-size: 12px;
+    transition: background 200ms ease;
+    border-radius: 3px;
+  }
+  .action-facts li span:first-child { color: var(--muted-fg); }
+  .action-facts li span:last-child { color: var(--fg); font-weight: 500; }
+
+  /* ─────────────  CROSS-LINKED HIGHLIGHTING  ─────────────
+     Used by V1, V3, V4. Hover any element with a [data-field],
+     and ALL elements with the same data-field across the page
+     light up. Implemented by toggling a ".linked" class on
+     <body> + a CSS variable holding the active field id; CSS
+     selectors match accordingly.                              */
+  body.linked .has-field [data-field]:not([data-field="separator"]) { opacity: 0.4; transition: opacity 220ms ease; }
+  body.linked.field-postqueue .has-field [data-field="postqueue"],
+  body.linked.field-version   .has-field [data-field="version"],
+  body.linked.field-queue     .has-field [data-field="queue"],
+  body.linked.field-token     .has-field [data-field="token"],
+  body.linked.field-messagetype .has-field [data-field="messagetype"],
+  body.linked.field-messageid .has-field [data-field="messageid"] {
+    opacity: 1;
+  }
+  /* explicit highlight glow per field */
+  body.linked.field-postqueue .has-field [data-field="postqueue"] { background: var(--amber-glow); border-color: var(--amber); }
+  body.linked.field-version   .has-field [data-field="version"]   { background: var(--slate-glow); border-color: hsl(0 0% 40%); }
+  body.linked.field-queue     .has-field [data-field="queue"]     { background: var(--sky-glow); border-color: var(--sky); }
+  body.linked.field-token     .has-field [data-field="token"]     { background: var(--emerald-glow); border-color: var(--emerald); }
+  body.linked.field-messagetype .has-field [data-field="messagetype"] { background: var(--slate-glow); border-color: hsl(0 0% 40%); }
+  body.linked.field-messageid .has-field [data-field="messageid"] { background: var(--brand-glow); border-color: var(--brand); }
+
+  /* hex bytes get a stronger color shift on highlight */
+  body.linked.field-postqueue .has-field .hb[data-field="postqueue"],
+  body.linked.field-queue     .has-field .hb[data-field="queue"],
+  body.linked.field-token     .has-field .hb[data-field="token"],
+  body.linked.field-messageid .has-field .hb[data-field="messageid"],
+  body.linked.field-version   .has-field .hb[data-field="version"],
+  body.linked.field-messagetype .has-field .hb[data-field="messagetype"] {
+    transform: translateY(-1px);
+    color: hsl(0 0% 100%);
+  }
+
+  /* in linked mode, dim everything in containers that have-field */
+  body.linked .has-field { transition: filter 200ms ease; }
+  body.linked .has-field [data-field="separator"] { opacity: 0.5; }
+
+  /* ═══════════════════════════════════════════════════════════
+     V1 — LINKED-HIGHLIGHT QUAD
+     Four columns, side by side. Hover anywhere → the same
+     field lights up across all four columns.
+     ═══════════════════════════════════════════════════════════ */
+  .v1-stage { padding: 0 24px; }
+  .v1-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr 1.05fr 1fr;
+    gap: 14px;
+    align-items: stretch;
+  }
+  @media (max-width: 1100px) {
+    .v1-grid { grid-template-columns: 1fr 1fr; }
+  }
+  .v1-grid > .stage { min-height: 460px; }
+  .v1-hint {
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--muted-fg);
+    text-align: center;
+  }
+  .v1-hint .swatches {
+    display: inline-flex;
+    gap: 14px;
+    margin-left: 12px;
+    vertical-align: middle;
+  }
+  .v1-hint .swatches button {
+    background: transparent;
+    border: none;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--muted-fg);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 160ms ease, color 160ms ease;
+  }
+  .v1-hint .swatches button:hover { color: var(--fg); }
+  .v1-hint .swatches button .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+  .v1-hint .swatches button.f-amber .dot { background: var(--amber); }
+  .v1-hint .swatches button.f-sky .dot { background: var(--sky); }
+  .v1-hint .swatches button.f-emerald .dot { background: var(--emerald); }
+  .v1-hint .swatches button.f-brand .dot { background: var(--brand); }
+  .v1-hint .swatches button.f-slate .dot { background: hsl(0 0% 70%); }
+  .v1-hint .swatches button.on { color: var(--fg); background: hsl(0 0% 11%); }
+
+  /* ═══════════════════════════════════════════════════════════
+     V2 — ACCORDION
+     Four columns. Click a column header → it expands; the
+     others compress to thin strips with a vertical label.
+     ═══════════════════════════════════════════════════════════ */
+  .v2-stage { padding: 0 24px; }
+  .v2-grid {
+    display: flex;
+    gap: 10px;
+    height: 540px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: hsl(0 0% 3%);
+    padding: 10px;
+  }
+  .v2-cell {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    flex-grow: 1;
+    flex-basis: 0;
+    min-width: 56px;
+    transition: flex-grow 380ms cubic-bezier(0.2, 0.8, 0.2, 1), background 200ms ease;
+    cursor: pointer;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+  .v2-cell.active { flex-grow: 4.6; cursor: default; }
+  .v2-cell:not(.active):hover { background: hsl(0 0% 8%); }
+  .v2-cell .v2-collapsed {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    height: 100%;
+    padding: 18px 8px;
+    gap: 14px;
+  }
+  .v2-cell:not(.active) .v2-collapsed { display: flex; }
+  .v2-cell:not(.active) .v2-expanded { display: none; }
+  .v2-cell .v2-collapsed .vlabel {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font-size: 10.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    font-family: ui-monospace, monospace;
+  }
+  .v2-cell .v2-collapsed .vnum {
+    font-family: ui-monospace, monospace;
+    font-size: 18px;
+    color: hsl(0 0% 36%);
+    font-weight: 500;
+  }
+  .v2-cell .v2-collapsed .vbar {
+    width: 2px;
+    flex: 1;
+    border-radius: 999px;
+    background: hsl(0 0% 12%);
+  }
+  .v2-cell.f-amber .v2-collapsed .vbar { background: var(--amber-soft); }
+  .v2-cell.f-sky .v2-collapsed .vbar { background: var(--sky-soft); }
+  .v2-cell.f-emerald .v2-collapsed .vbar { background: var(--emerald-soft); }
+  .v2-cell.f-brand .v2-collapsed .vbar { background: var(--brand-soft); }
+  .v2-cell .v2-expanded {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 16px 18px;
+    gap: 14px;
+  }
+  .v2-cell .v2-expanded .stage-body {
+    flex: 1;
+    overflow: auto;
+    background: hsl(0 0% 3%);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     V3 — PROGRESSIVE SCRUBBER
+     A range slider 0–3 controls how many stages are "expanded".
+     Stages already past collapse to ribbons but stay visible.
+     ═══════════════════════════════════════════════════════════ */
+  .v3-stage { padding: 0 24px; }
+  .v3-frame {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--card-2);
+    padding: 14px;
+  }
+  .v3-row {
+    display: flex;
+    gap: 10px;
+    height: 480px;
+    margin-bottom: 14px;
+  }
+  .v3-cell {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    flex-grow: 1;
+    flex-basis: 0;
+    min-width: 0;
+    transition: flex-grow 480ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 380ms ease, filter 380ms ease;
+    display: flex;
+    flex-direction: column;
+  }
+  /* compact (past), focus (current), upcoming (future) */
+  .v3-cell.compact { flex-grow: 0.4; }
+  .v3-cell.compact .v3-content { opacity: 0.5; filter: saturate(0.6); }
+  .v3-cell.focus  { flex-grow: 4; }
+  .v3-cell.upcoming { flex-grow: 0.05; opacity: 0.18; pointer-events: none; }
+  .v3-cell.upcoming .v3-content { opacity: 0; }
+  .v3-cell .v3-content {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 18px;
+    gap: 14px;
+    transition: opacity 280ms ease, filter 280ms ease;
+  }
+  .v3-cell .v3-content .stage-body { flex: 1; overflow: hidden; }
+
+  .v3-controls {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 18px;
+    align-items: center;
+    padding: 4px 8px 0;
+  }
+  .v3-controls .lbl {
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    font-family: ui-monospace, monospace;
+  }
+  .v3-track {
+    position: relative;
+    padding: 14px 4px 28px;
+  }
+  .v3-slider {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+  }
+  .v3-slider::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(90deg,
+      hsl(0 0% 60%) 0%,
+      var(--amber) 33%,
+      var(--sky) 66%,
+      var(--brand) 100%);
+  }
+  .v3-slider::-moz-range-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, hsl(0 0% 60%), var(--amber), var(--sky), var(--brand));
+  }
+  .v3-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 22px; height: 22px;
+    background: hsl(0 0% 96%);
+    border: 1px solid hsl(0 0% 60%);
+    border-radius: 50%;
+    margin-top: -9px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+    cursor: grab;
+  }
+  .v3-slider::-webkit-slider-thumb:active { cursor: grabbing; }
+  .v3-slider::-moz-range-thumb {
+    width: 22px; height: 22px;
+    background: hsl(0 0% 96%);
+    border: 1px solid hsl(0 0% 60%);
+    border-radius: 50%;
+    cursor: grab;
+  }
+  .v3-stops {
+    margin-top: 8px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+  .v3-stops button {
+    background: transparent;
+    border: none;
+    color: var(--muted-fg);
+    font-size: 11.5px;
+    text-align: left;
+    cursor: pointer;
+    transition: color 160ms ease;
+    padding: 6px 0;
+    font-family: inherit;
+  }
+  .v3-stops button:nth-child(2) { text-align: center; }
+  .v3-stops button:nth-child(3) { text-align: center; }
+  .v3-stops button:nth-child(4) { text-align: right; }
+  .v3-stops button.on { color: var(--fg); }
+  .v3-stops button:hover { color: var(--fg); }
+  .v3-controls .num {
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    color: var(--fg);
+    background: hsl(0 0% 9%);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    min-width: 56px;
+    text-align: center;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     V4 — PIPELINE WITH CONNECTORS
+     Four columns with SVG curves drawn between them. Each
+     curve is colored by field. The dashes flow.
+     ═══════════════════════════════════════════════════════════ */
+  .v4-stage { padding: 0 24px; }
+  .v4-frame {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background:
+      radial-gradient(900px 380px at 50% 100%, hsl(0 0% 7%), transparent 60%),
+      var(--card-2);
+    padding: 18px 18px 22px;
+  }
+  .v4-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 80px;
+    align-items: stretch;
+    position: relative;
+    z-index: 2;
+  }
+  @media (max-width: 1100px) {
+    .v4-grid { gap: 56px; }
+  }
+  .v4-grid > .stage { min-height: 460px; }
+  .v4-svg {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .v4-svg path {
+    fill: none;
+    stroke-width: 1.6;
+    stroke-dasharray: 4 6;
+    opacity: 0.55;
+    animation: v4-flow 4s linear infinite;
+    transition: opacity 200ms ease, stroke-width 200ms ease;
+  }
+  .v4-svg path.amber { stroke: var(--amber); }
+  .v4-svg path.sky { stroke: var(--sky); }
+  .v4-svg path.emerald { stroke: var(--emerald); }
+  .v4-svg path.brand { stroke: var(--brand); }
+  .v4-svg path.slate { stroke: hsl(0 0% 50%); }
+  @keyframes v4-flow {
+    to { stroke-dashoffset: -100; }
+  }
+  body.linked.field-postqueue .v4-svg path:not(.amber)   { opacity: 0.08; }
+  body.linked.field-version   .v4-svg path:not(.slate)   { opacity: 0.08; }
+  body.linked.field-queue     .v4-svg path:not(.sky)     { opacity: 0.08; }
+  body.linked.field-token     .v4-svg path:not(.emerald) { opacity: 0.08; }
+  body.linked.field-messagetype .v4-svg path:not(.slate) { opacity: 0.08; }
+  body.linked.field-messageid .v4-svg path:not(.brand)   { opacity: 0.08; }
+  body.linked .v4-svg path { stroke-width: 2.2; }
+
+  /* ─────────────  CLOSING CARD  ───────────── */
+  .closer {
+    margin-top: 140px;
+    padding: 48px 24px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+  }
+  .closer h2 {
+    font-size: clamp(24px, 3vw, 32px);
+    margin: 0 0 12px;
+    font-weight: 600;
+  }
+  .closer p {
+    color: var(--muted-fg);
+    max-width: 60ch;
+    margin: 0 auto;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <p class="eyebrow">Approach B · iterations</p>
+    <h1>Four stages, horizontal.</h1>
+    <p>
+      Approach B from the previous round had three stages and a tab strip.
+      This file pulls the <strong>HEX bytes</strong> out as a true first
+      stage, splits the rest into <strong>ASCII (decoded)</strong>,
+      <strong>structured fields</strong>, and the <strong>action</strong>
+      itself, and tries four ways of laying them out side by side. Same
+      fixture as before — table 12, pre-bill, captured once.
+    </p>
+  </header>
+
+  <nav class="toc">
+    <a href="#v1"><strong>V1 · Linked highlights</strong><span>Hover anywhere → same field lights up across all four stages.</span></a>
+    <a href="#v2"><strong>V2 · Accordion</strong><span>Click a column to expand. Others collapse to ribbons.</span></a>
+    <a href="#v3"><strong>V3 · Progressive scrubber</strong><span>Slide right; stages appear and earlier ones compress.</span></a>
+    <a href="#v4"><strong>V4 · Connected pipeline</strong><span>SVG curves drawn between fields, colored & flowing.</span></a>
+  </nav>
+
+  <!-- ═════════════════  V1 — LINKED HIGHLIGHTS  ═════════════════ -->
+  <section class="approach" id="v1">
+    <div class="intro">
+      <span class="pill">V1 · linked highlights</span>
+      <h2>Same thing, four readings — hover to connect them.</h2>
+      <p>
+        All four stages always visible, equal weight. Hover any field, any
+        chip, any decoded byte, and the same field lights up across all
+        four columns. The colors are stable: <strong>amber</strong> is the
+        opcode, <strong>sky</strong> is the QUEUE payload,
+        <strong>emerald</strong> is the token, <strong>purple</strong> is
+        the message id.
+      </p>
+    </div>
+
+    <div class="v1-stage">
+      <div class="v1-grid has-field" data-pane="v1">
+        <!-- STAGE 1: HEX -->
+        <div class="stage" data-stage="1">
+          <div class="stage-head">
+            <div class="label"><span class="num">01</span> HEX bytes</div>
+            <span class="meta">482 B</span>
+          </div>
+          <div class="stage-title">What we sniffed off the wire.</div>
+          <div class="stage-body" style="padding: 10px 12px;">
+            <div class="hex-grid" data-render="hex"></div>
+          </div>
+        </div>
+
+        <!-- STAGE 2: ASCII / TLV -->
+        <div class="stage" data-stage="2">
+          <div class="stage-head">
+            <div class="label"><span class="num">02</span> ASCII (decoded)</div>
+            <span class="meta">TLV-style</span>
+          </div>
+          <div class="stage-title">Same bytes, printable.</div>
+          <div class="stage-body" style="padding: 10px 12px; overflow: auto;">
+            <div class="ascii-stream" data-render="ascii"></div>
+          </div>
+        </div>
+
+        <!-- STAGE 3: FIELDS -->
+        <div class="stage" data-stage="3">
+          <div class="stage-head">
+            <div class="label"><span class="num">03</span> How we read it</div>
+            <span class="meta">6 fields</span>
+          </div>
+          <div class="stage-title">Six labelled fields.</div>
+          <div class="stage-body" style="padding: 10px 12px; overflow: auto;">
+            <div class="fields-list" data-render="fields"></div>
+          </div>
+        </div>
+
+        <!-- STAGE 4: ACTION -->
+        <div class="stage" data-stage="4">
+          <div class="stage-head">
+            <div class="label"><span class="num">04</span> As an action</div>
+            <span class="meta">intent</span>
+          </div>
+          <div class="stage-title">Print table 12's bill.</div>
+          <div class="stage-body" style="padding: 14px 16px; overflow: auto; background: hsl(0 0% 5%);">
+            <div class="action-card" data-render="action"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="v1-hint">
+        Hover anywhere &middot; or click a field
+        <span class="swatches" id="v1-swatches"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════════════  V2 — ACCORDION  ═════════════════ -->
+  <section class="approach" id="v2">
+    <div class="intro">
+      <span class="pill">V2 · accordion</span>
+      <h2>One stage at a time, the others stay in the room.</h2>
+      <p>
+        Click any column to make it the focus. The others collapse to thin
+        vertical ribbons that you can still read at a glance — the labels
+        rotate, the colored bar hints at how full each stage is. Click a
+        ribbon to swap focus.
+      </p>
+    </div>
+
+    <div class="v2-stage">
+      <div class="v2-grid has-field" id="v2-grid">
+        <div class="v2-cell f-slate" data-cell="1">
+          <div class="v2-collapsed">
+            <span class="vnum">01</span>
+            <span class="vbar"></span>
+            <span class="vlabel">HEX bytes</span>
+          </div>
+          <div class="v2-expanded">
+            <div class="stage-head">
+              <div class="label"><span class="num">01</span> HEX bytes</div>
+              <span class="meta">482 B</span>
+            </div>
+            <div class="stage-title">What we sniffed off the wire.</div>
+            <div class="stage-body" style="padding: 10px 12px;">
+              <div class="hex-grid" data-render="hex"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="v2-cell f-sky active" data-cell="2">
+          <div class="v2-collapsed">
+            <span class="vnum">02</span>
+            <span class="vbar"></span>
+            <span class="vlabel">ASCII</span>
+          </div>
+          <div class="v2-expanded">
+            <div class="stage-head">
+              <div class="label"><span class="num">02</span> ASCII (decoded)</div>
+              <span class="meta">TLV-style</span>
+            </div>
+            <div class="stage-title">Same bytes, printable.</div>
+            <div class="stage-body" style="padding: 10px 12px; overflow: auto;">
+              <div class="ascii-stream" data-render="ascii"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="v2-cell f-emerald" data-cell="3">
+          <div class="v2-collapsed">
+            <span class="vnum">03</span>
+            <span class="vbar"></span>
+            <span class="vlabel">Fields</span>
+          </div>
+          <div class="v2-expanded">
+            <div class="stage-head">
+              <div class="label"><span class="num">03</span> How we read it</div>
+              <span class="meta">6 fields</span>
+            </div>
+            <div class="stage-title">Six labelled fields.</div>
+            <div class="stage-body" style="padding: 10px 12px; overflow: auto;">
+              <div class="fields-list" data-render="fields"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="v2-cell f-amber" data-cell="4">
+          <div class="v2-collapsed">
+            <span class="vnum">04</span>
+            <span class="vbar"></span>
+            <span class="vlabel">Action</span>
+          </div>
+          <div class="v2-expanded">
+            <div class="stage-head">
+              <div class="label"><span class="num">04</span> As an action</div>
+              <span class="meta">intent</span>
+            </div>
+            <div class="stage-title">Print table 12's bill.</div>
+            <div class="stage-body" style="padding: 14px 16px; overflow: auto; background: hsl(0 0% 5%);">
+              <div class="action-card" data-render="action"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="footnote">Click any ribbon to bring it forward.</p>
+    </div>
+  </section>
+
+  <!-- ═════════════════  V3 — PROGRESSIVE SCRUBBER  ═════════════════ -->
+  <section class="approach" id="v3">
+    <div class="intro">
+      <span class="pill">V3 · progressive scrubber</span>
+      <h2>Slide right. Watch the readings telescope outward.</h2>
+      <p>
+        At <strong>0</strong>, only the HEX is open — the same 482 bytes,
+        full width. Drag right and the next stage opens up next to it,
+        compressing what came before into a thin column you can still see.
+        By <strong>3</strong> all four stages are visible, with the action
+        on the right occupying the most space. Closest to your literal
+        "horizontal expansion" idea.
+      </p>
+    </div>
+
+    <div class="v3-stage">
+      <div class="v3-frame">
+        <div class="v3-row" id="v3-row">
+
+          <div class="v3-cell focus" data-stop="0">
+            <div class="v3-content">
+              <div class="stage-head">
+                <div class="label"><span class="num">01</span> HEX bytes</div>
+                <span class="meta">482 B</span>
+              </div>
+              <div class="stage-title">What we sniffed off the wire.</div>
+              <div class="stage-body" style="padding: 10px 12px; overflow: auto;">
+                <div class="hex-grid" data-render="hex"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="v3-cell upcoming" data-stop="1">
+            <div class="v3-content">
+              <div class="stage-head">
+                <div class="label"><span class="num">02</span> ASCII (decoded)</div>
+                <span class="meta">TLV-style</span>
+              </div>
+              <div class="stage-title">Same bytes, printable.</div>
+              <div class="stage-body" style="padding: 10px 12px; overflow: auto;">
+                <div class="ascii-stream" data-render="ascii"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="v3-cell upcoming" data-stop="2">
+            <div class="v3-content">
+              <div class="stage-head">
+                <div class="label"><span class="num">03</span> How we read it</div>
+                <span class="meta">6 fields</span>
+              </div>
+              <div class="stage-title">Six labelled fields.</div>
+              <div class="stage-body" style="padding: 10px 12px; overflow: auto;">
+                <div class="fields-list" data-render="fields"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="v3-cell upcoming" data-stop="3">
+            <div class="v3-content">
+              <div class="stage-head">
+                <div class="label"><span class="num">04</span> As an action</div>
+                <span class="meta">intent</span>
+              </div>
+              <div class="stage-title">Print table 12's bill.</div>
+              <div class="stage-body" style="padding: 14px 16px; overflow: auto; background: hsl(0 0% 5%);">
+                <div class="action-card" data-render="action"></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="v3-controls">
+          <span class="lbl">Stage</span>
+          <div class="v3-track">
+            <input type="range" min="0" max="3" step="1" value="0" id="v3-slider" class="v3-slider" aria-label="Pipeline stage" />
+            <div class="v3-stops" id="v3-stops">
+              <button data-stop="0" class="on">01 · HEX</button>
+              <button data-stop="1">02 · ASCII</button>
+              <button data-stop="2">03 · Fields</button>
+              <button data-stop="3">04 · Action</button>
+            </div>
+          </div>
+          <span class="num" id="v3-num">0 / 3</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════════════  V4 — CONNECTED PIPELINE  ═════════════════ -->
+  <section class="approach" id="v4">
+    <div class="intro">
+      <span class="pill">V4 · connected pipeline</span>
+      <h2>Draw the lines. Show the flow.</h2>
+      <p>
+        Same four stages, but the relationships between them are explicit:
+        SVG curves connect each field's bytes to its decoded form, to its
+        labelled row, to its place in the action. Each curve is the
+        field's color. The dashes flow gently. Hovering a field dims every
+        other curve so you can follow only that thread.
+      </p>
+    </div>
+
+    <div class="v4-stage">
+      <div class="v4-frame" id="v4-frame">
+        <svg class="v4-svg" id="v4-svg"></svg>
+        <div class="v4-grid has-field" id="v4-grid">
+
+          <div class="stage" data-stage="1">
+            <div class="stage-head">
+              <div class="label"><span class="num">01</span> HEX bytes</div>
+              <span class="meta">482 B</span>
+            </div>
+            <div class="stage-title">Wire.</div>
+            <div class="stage-body" style="padding: 10px 12px;">
+              <div class="hex-grid" data-render="hex"></div>
+            </div>
+          </div>
+
+          <div class="stage" data-stage="2">
+            <div class="stage-head">
+              <div class="label"><span class="num">02</span> ASCII</div>
+              <span class="meta">TLV-style</span>
+            </div>
+            <div class="stage-title">Decoded.</div>
+            <div class="stage-body" style="padding: 10px 12px; overflow: auto;">
+              <div class="ascii-stream" data-render="ascii"></div>
+            </div>
+          </div>
+
+          <div class="stage" data-stage="3">
+            <div class="stage-head">
+              <div class="label"><span class="num">03</span> Fields</div>
+              <span class="meta">6 fields</span>
+            </div>
+            <div class="stage-title">Read.</div>
+            <div class="stage-body" style="padding: 10px 12px; overflow: auto;">
+              <div class="fields-list" data-render="fields"></div>
+            </div>
+          </div>
+
+          <div class="stage" data-stage="4">
+            <div class="stage-head">
+              <div class="label"><span class="num">04</span> Action</div>
+              <span class="meta">intent</span>
+            </div>
+            <div class="stage-title">Done.</div>
+            <div class="stage-body" style="padding: 14px 16px; overflow: auto; background: hsl(0 0% 5%);">
+              <div class="action-card" data-render="action"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="footnote">Hover any field row in column 3 — the curves dim everything else.</p>
+    </div>
+  </section>
+
+  <div class="closer">
+    <h2>Pick a layout, let the lens hide elsewhere.</h2>
+    <p>
+      My hunch: V1 is the strongest as a production candidate (always-on
+      cross-reference is dense without being noisy). V3 best matches the
+      "horizontal expansion" phrase. V4 is the prettiest. V2 is good if
+      you want to commit screen real estate to whichever stage the reader
+      is on. Approach E (the lens) is great for a deep-dive page or an
+      annotated docs spread; not this section.
+    </p>
+  </div>
+</div>
+
+<script>
+(() => {
+  // ═══════════════════════════════════════════════════════════
+  // FIXTURE
+  // ═══════════════════════════════════════════════════════════
+  const HEX = "504f535451554555455b4e505d50524f544f434f4c56455253494f4e5b45515d325b4e505d51554555455b45515d65794a68634842575a584a7a61573975496a6f674d437767496d5674634778766557566c535751694f6941784f537767496d6431615751694f6941694f47566a4e444579597a45744e4463315a5330304e57517a4c5745794d6a51745a6a4e6d5a475a685a574e694f54457949697767496d6c6b496a6f674f437767496d39795a47567963794936494674644c43416963475679633239756330353162574a6c636949364944417349434a7a6447463064584d694f6941784c43416964474669624755694f6941784d697767496e5270625755694f6941784e7a4d334d7a6b304f4445794d4445794c43416951574e3061573975496a6f674d33303d5b4e505d544f4b454e5b45515d37613366396332652d316434622d346636612d396238652d3263356438663161306237635b4e505d4d455353414745545950455b45515d584450656f706c652e456e7469746965732e506f7374416374696f6e4d6573736167655b4e505d4d45535341474549445b45515d70313265346238612d316632392d346137632d396536622d3466613032633831336531325b454f4d5d";
+
+  const ASCII = "POSTQUEUE[NP]PROTOCOLVERSION[EQ]2[NP]QUEUE[EQ]eyJhcHBWZXJzaW9uIjogMCwgImVtcGxveWVlSWQiOiAxOSwgImd1aWQiOiAiOGVjNDEyYzEtNDc1ZS00NWQzLWEyMjQtZjNmZGZhZWNiOTEyIiwgImlkIjogOCwgIm9yZGVycyI6IFtdLCAicGVyc29uc051bWJlciI6IDAsICJzdGF0dXMiOiAxLCAidGFibGUiOiAxMiwgInRpbWUiOiAxNzM3Mzk0ODEyMDEyLCAiQWN0aW9uIjogM30=[NP]TOKEN[EQ]7a3f9c2e-1d4b-4f6a-9b8e-2c5d8f1a0b7c[NP]MESSAGETYPE[EQ]XDPeople.Entities.PostActionMessage[NP]MESSAGEID[EQ]p12e4b8a-1f29-4a7c-9e6b-4fa02c813e12[EOM]";
+
+  // sanity: HEX/ASCII have the same byte count (HEX is 2 chars per byte).
+  // We use ASCII positions throughout; same index space as the byte stream.
+
+  // delimiters used in tokenization + chip rendering
+  const NP = "[NP]", EQ = "[EQ]", EOM = "[EOM]";
+
+  // field byte-range computation (same logic as production component)
+  function rangeBetween(after, until, label) {
+    const start = ASCII.indexOf(after);
+    if (start < 0) return null;
+    const end = ASCII.indexOf(until, start + after.length);
+    return { start, end: end < 0 ? ASCII.length : end, label };
+  }
+  // POSTQUEUE — first 9 bytes
+  const FIELD_RANGES = {
+    postqueue:  { start: 0, end: "POSTQUEUE".length },
+    version:    rangeBetween("PROTOCOLVERSION", NP, "version"),
+    queue:      rangeBetween("QUEUE" + EQ, NP, "queue"),
+    token:      rangeBetween("TOKEN" + EQ, NP, "token"),
+    messagetype: rangeBetween("MESSAGETYPE" + EQ, NP, "messagetype"),
+    messageid:  rangeBetween("MESSAGEID" + EQ, EOM, "messageid")
+  };
+
+  // include the field-name prefix in the range too (so e.g. PROTOCOLVERSION
+  // is part of the version field, not stranded between separators)
+  function withKeyPrefix(rangeKey, prefix) {
+    const r = FIELD_RANGES[rangeKey];
+    if (!r) return;
+    const idx = ASCII.indexOf(prefix);
+    if (idx >= 0 && idx < r.start) r.start = idx;
+  }
+  withKeyPrefix("version", "PROTOCOLVERSION");
+  withKeyPrefix("queue", "QUEUE" + EQ);
+  withKeyPrefix("token", "TOKEN" + EQ);
+  withKeyPrefix("messagetype", "MESSAGETYPE" + EQ);
+  withKeyPrefix("messageid", "MESSAGEID" + EQ);
+
+  // pure separator regions — everything not in any field
+  const FIELD_KEYS = ["postqueue", "version", "queue", "token", "messagetype", "messageid"];
+
+  function fieldAtByte(idx) {
+    for (const k of FIELD_KEYS) {
+      const r = FIELD_RANGES[k];
+      if (r && idx >= r.start && idx < r.end) return k;
+    }
+    return "separator";
+  }
+
+  // colors for each field (CSS class suffix matches `.f-amber`, `.f-sky`, etc.)
+  const FIELD_COLOR = {
+    postqueue: "amber",
+    version: "slate",
+    queue: "sky",
+    token: "emerald",
+    messagetype: "slate",
+    messageid: "brand",
+    separator: ""
+  };
+  const FIELD_LABEL_HUMAN = {
+    postqueue: "POSTQUEUE",
+    version: "PROTOCOLVERSION",
+    queue: "QUEUE",
+    token: "TOKEN",
+    messagetype: "MESSAGETYPE",
+    messageid: "MESSAGEID"
+  };
+
+  // ───────────────  STAGE RENDERERS  ───────────────
+
+  // Stage 1 — HEX
+  function renderHex(host) {
+    host.innerHTML = "";
+    const byteCount = HEX.length / 2;
+    for (let i = 0; i < byteCount; i++) {
+      const f = fieldAtByte(i);
+      const span = document.createElement("span");
+      span.className = "hb " + (FIELD_COLOR[f] || "delim");
+      span.textContent = HEX.slice(i * 2, i * 2 + 2);
+      span.dataset.field = f;
+      host.appendChild(span);
+    }
+  }
+
+  // Stage 2 — ASCII / TLV
+  function tokenize(ascii) {
+    const ds = [NP, EQ, EOM];
+    const out = [];
+    let cursor = 0;
+    while (cursor < ascii.length) {
+      let nextDelim = null, nextIdx = -1;
+      for (const d of ds) {
+        const idx = ascii.indexOf(d, cursor);
+        if (idx !== -1 && (nextIdx === -1 || idx < nextIdx)) { nextIdx = idx; nextDelim = d; }
+      }
+      if (nextDelim === null) { out.push({ kind: "text", value: ascii.slice(cursor), at: cursor }); break; }
+      if (nextIdx > cursor) out.push({ kind: "text", value: ascii.slice(cursor, nextIdx), at: cursor });
+      out.push({ kind: "delim", value: nextDelim, at: nextIdx });
+      cursor = nextIdx + nextDelim.length;
+    }
+    return out;
+  }
+
+  function renderAscii(host) {
+    host.innerHTML = "";
+    const tokens = tokenize(ASCII);
+    for (const t of tokens) {
+      if (t.kind === "delim") {
+        const f = fieldAtByte(t.at);
+        const cls = t.value === EOM ? "eom" : (t.value === EQ ? "eq" : "np");
+        const span = document.createElement("span");
+        span.className = "ascii-tag " + cls;
+        span.dataset.field = f === "separator" ? "separator" : f;
+        span.textContent = t.value.slice(1, -1);
+        host.appendChild(span);
+        continue;
+      }
+      // text segment — split on field-name keywords so we can color them
+      const parts = t.value.split(/(POSTQUEUE|PROTOCOLVERSION|QUEUE|TOKEN|MESSAGETYPE|MESSAGEID)/);
+      let cursor = t.at;
+      for (const part of parts) {
+        if (part === "") continue;
+        const at = cursor;
+        const f = fieldAtByte(at);
+        const isKey = ["POSTQUEUE","PROTOCOLVERSION","QUEUE","TOKEN","MESSAGETYPE","MESSAGEID"].includes(part);
+        const span = document.createElement("span");
+        span.className = "ascii-val";
+        span.dataset.field = f;
+        if (isKey) {
+          span.className = "ascii-key k-" + part.toLowerCase();
+        } else if (f === "queue") {
+          span.classList.add("b64");
+        }
+        span.textContent = part;
+        host.appendChild(span);
+        cursor += part.length;
+      }
+    }
+  }
+
+  // Stage 3 — FIELDS
+  const FIELDS = [
+    { key: "postqueue",  k: "POSTQUEUE",       v: "(opcode — what we want done)",                      color: "amber" },
+    { key: "version",    k: "PROTOCOLVERSION", v: "2",                                                 color: "slate" },
+    { key: "queue",      k: "QUEUE",           v: "<base64 envelope · 256 B>",                         color: "sky" },
+    { key: "token",      k: "TOKEN",           v: "7a3f9c2e-1d4b-4f6a-9b8e-2c5d8f1a0b7c",              color: "emerald" },
+    { key: "messagetype",k: "MESSAGETYPE",     v: "XDPeople.Entities.PostActionMessage",               color: "slate" },
+    { key: "messageid",  k: "MESSAGEID",       v: "p12e4b8a-1f29-4a7c-9e6b-4fa02c813e12",              color: "brand" }
+  ];
+  function renderFields(host) {
+    host.innerHTML = "";
+    for (const f of FIELDS) {
+      const row = document.createElement("div");
+      row.className = "field-row f-" + f.color;
+      row.dataset.field = f.key;
+      row.innerHTML = `<div class="k">${f.k}</div><div class="v">${f.v}</div>`;
+      host.appendChild(row);
+    }
+  }
+
+  // Stage 4 — ACTION
+  function renderAction(host) {
+    host.innerHTML = `
+      <div class="action-headline">
+        Open <span class="strong" data-field="queue">table&nbsp;12</span>'s
+        <span class="strong pulse" data-field="postqueue">pre-bill</span>.
+      </div>
+      <div class="action-summary">
+        On behalf of
+        <span class="f-sky" data-field="queue">employee&nbsp;19</span>,
+        with the box's
+        <span class="f-emerald" data-field="token">session token</span>,
+        keyed off both an in-payload
+        <span class="f-sky" data-field="queue">guid</span> and a protocol-level
+        <span class="f-brand" data-field="messageid">message&nbsp;id</span>
+        — so a duplicate hit doesn't double-print.
+      </div>
+      <ul class="action-facts">
+        <li data-field="queue"><span>Action</span><span>3 · pre-bill</span></li>
+        <li data-field="queue"><span>Table</span><span>12</span></li>
+        <li data-field="queue"><span>Employee</span><span>19</span></li>
+        <li data-field="queue"><span>Captured at</span><span>17:40 UTC, Jan&nbsp;20&nbsp;2025</span></li>
+        <li data-field="token"><span>Session token</span><span>7a3f&hellip;0b7c</span></li>
+        <li data-field="messageid"><span>Message id</span><span>p12e&hellip;3e12</span></li>
+        <li data-field="version"><span>Protocol</span><span>v2</span></li>
+        <li data-field="messagetype"><span>Server class</span><span>PostActionMessage</span></li>
+      </ul>
+    `;
+  }
+
+  // ───────────────  RENDER ALL STAGES IN ALL VARIATIONS  ───────────────
+  document.querySelectorAll('[data-render="hex"]').forEach(renderHex);
+  document.querySelectorAll('[data-render="ascii"]').forEach(renderAscii);
+  document.querySelectorAll('[data-render="fields"]').forEach(renderFields);
+  document.querySelectorAll('[data-render="action"]').forEach(renderAction);
+
+  // ───────────────  CROSS-LINKED HOVER  ───────────────
+  // Hover any element with [data-field] anywhere — toggle a body class
+  // that drives all the highlight rules in CSS.
+  let activeField = null;
+  function setField(f) {
+    if (f === activeField) return;
+    activeField = f;
+    FIELD_KEYS.forEach(k => document.body.classList.remove("field-" + k));
+    document.body.classList.toggle("linked", !!f);
+    if (f && f !== "separator") document.body.classList.add("field-" + f);
+  }
+  document.addEventListener("mouseover", (ev) => {
+    const t = ev.target.closest("[data-field]");
+    if (!t) return;
+    setField(t.dataset.field || null);
+  });
+  document.addEventListener("mouseout", (ev) => {
+    if (!ev.relatedTarget || !ev.relatedTarget.closest) return;
+    if (!ev.relatedTarget.closest("[data-field]")) setField(null);
+  });
+
+  // V1 swatch buttons — explicit click-to-pin (also useful as legend)
+  const swatches = document.getElementById("v1-swatches");
+  if (swatches) {
+    const items = [
+      { f: "postqueue", l: "POSTQUEUE", c: "amber" },
+      { f: "queue", l: "QUEUE", c: "sky" },
+      { f: "token", l: "TOKEN", c: "emerald" },
+      { f: "messageid", l: "MESSAGEID", c: "brand" }
+    ];
+    let pinned = null;
+    for (const it of items) {
+      const b = document.createElement("button");
+      b.className = "f-" + it.c;
+      b.innerHTML = `<span class="dot"></span>${it.l}`;
+      b.addEventListener("click", () => {
+        if (pinned === it.f) { pinned = null; setField(null); }
+        else { pinned = it.f; setField(it.f); }
+        swatches.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+        if (pinned) b.classList.add("on");
+      });
+      b.addEventListener("mouseenter", () => { if (!pinned) setField(it.f); });
+      b.addEventListener("mouseleave", () => { if (!pinned) setField(null); });
+      swatches.appendChild(b);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // V2 — ACCORDION CLICK-TO-FOCUS
+  // ═══════════════════════════════════════════════════════════
+  const v2Grid = document.getElementById("v2-grid");
+  if (v2Grid) {
+    v2Grid.addEventListener("click", (ev) => {
+      const cell = ev.target.closest(".v2-cell");
+      if (!cell) return;
+      v2Grid.querySelectorAll(".v2-cell").forEach(c => c.classList.remove("active"));
+      cell.classList.add("active");
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // V3 — PROGRESSIVE SCRUBBER
+  // ═══════════════════════════════════════════════════════════
+  const v3Slider = document.getElementById("v3-slider");
+  const v3Row = document.getElementById("v3-row");
+  const v3Stops = document.querySelectorAll("#v3-stops button");
+  const v3Num = document.getElementById("v3-num");
+  if (v3Slider && v3Row) {
+    function setV3(v) {
+      v3Num.textContent = v + " / 3";
+      v3Stops.forEach((b, i) => b.classList.toggle("on", i === v));
+      const cells = v3Row.querySelectorAll(".v3-cell");
+      cells.forEach((c, i) => {
+        c.classList.remove("compact", "focus", "upcoming");
+        if (i < v) c.classList.add("compact");
+        else if (i === v) c.classList.add("focus");
+        else c.classList.add("upcoming");
+      });
+    }
+    v3Slider.addEventListener("input", () => setV3(parseInt(v3Slider.value, 10)));
+    v3Stops.forEach(b => b.addEventListener("click", () => {
+      const v = parseInt(b.dataset.stop, 10);
+      v3Slider.value = v;
+      setV3(v);
+    }));
+    setV3(0);
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // V4 — SVG CONNECTORS
+  // ═══════════════════════════════════════════════════════════
+  // For each field, find one anchor element in each of the four
+  // stages, then draw a curve from anchor 1 → 2 → 3 → 4.
+  const v4Frame = document.getElementById("v4-frame");
+  const v4Svg = document.getElementById("v4-svg");
+  const v4Grid = document.getElementById("v4-grid");
+
+  function v4FieldAnchors(field) {
+    // pick representative byte/token in each stage (median range, etc.)
+    const stages = v4Grid.querySelectorAll('.stage');
+    const out = [];
+    stages.forEach(stage => {
+      // first element with matching data-field that's NOT a separator
+      const cands = stage.querySelectorAll(`[data-field="${field}"]`);
+      if (cands.length === 0) { out.push(null); return; }
+      // pick the middle one by position (visually most central)
+      const mid = cands[Math.floor(cands.length / 2)];
+      out.push(mid);
+    });
+    return out;
+  }
+
+  function elemCenter(el, frameRect) {
+    const r = el.getBoundingClientRect();
+    return {
+      x: r.left + r.width / 2 - frameRect.left,
+      y: r.top + r.height / 2 - frameRect.top
+    };
+  }
+
+  function drawV4() {
+    if (!v4Frame || !v4Svg || !v4Grid) return;
+    const fr = v4Frame.getBoundingClientRect();
+    v4Svg.setAttribute("width", fr.width);
+    v4Svg.setAttribute("height", fr.height);
+    v4Svg.innerHTML = "";
+
+    const drawCurve = (a, b, color) => {
+      if (!a || !b) return;
+      const ca = elemCenter(a, fr);
+      const cb = elemCenter(b, fr);
+      const dx = cb.x - ca.x;
+      const c1x = ca.x + dx * 0.5;
+      const c2x = ca.x + dx * 0.5;
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", `M ${ca.x} ${ca.y} C ${c1x} ${ca.y}, ${c2x} ${cb.y}, ${cb.x} ${cb.y}`);
+      path.setAttribute("class", color);
+      v4Svg.appendChild(path);
+    };
+
+    for (const k of FIELD_KEYS) {
+      const anchors = v4FieldAnchors(k);
+      const color = FIELD_COLOR[k];
+      drawCurve(anchors[0], anchors[1], color);
+      drawCurve(anchors[1], anchors[2], color);
+      drawCurve(anchors[2], anchors[3], color);
+    }
+  }
+
+  drawV4();
+  setTimeout(drawV4, 80);
+  setTimeout(drawV4, 320);
+  window.addEventListener("resize", drawV4);
+
+  // also redraw if the active field changes (anchor positions don't move,
+  // but in case a future iteration animates them)
+  const mo = new MutationObserver(() => { /* no-op */ });
+  mo.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+
+})();
+</script>
+</body>
+</html>

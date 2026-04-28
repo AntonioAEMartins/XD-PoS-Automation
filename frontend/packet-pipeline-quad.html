@@ -1,0 +1,1485 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Packet pipeline — square iterations</title>
+<style>
+  :root {
+    --bg: hsl(0 0% 4%);
+    --fg: hsl(0 0% 92%);
+    --muted: hsl(0 0% 10%);
+    --muted-fg: hsl(0 0% 62%);
+    --card: hsl(0 0% 6%);
+    --card-2: hsl(0 0% 8%);
+    --card-3: hsl(0 0% 5%);
+    --border: hsl(0 0% 15%);
+    --border-strong: hsl(0 0% 22%);
+    --radius: 12px;
+
+    --amber: #f5b945;
+    --amber-soft: #f5b94522;
+    --amber-glow: #f5b94538;
+    --sky: #56b8ef;
+    --sky-soft: #56b8ef22;
+    --sky-glow: #56b8ef38;
+    --emerald: #4cc69a;
+    --emerald-soft: #4cc69a22;
+    --emerald-glow: #4cc69a38;
+    --brand: #a78bfa;
+    --brand-soft: #a78bfa22;
+    --brand-glow: #a78bfa38;
+    --slate: hsl(0 0% 70%);
+    --slate-soft: hsl(0 0% 100% / 0.05);
+    --slate-glow: hsl(0 0% 100% / 0.1);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    line-height: 1.55;
+  }
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+  }
+  a { color: inherit; }
+
+  .page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 80px 24px 200px;
+  }
+  header h1 {
+    font-size: clamp(40px, 6vw, 64px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    margin: 16px 0 18px;
+    text-wrap: balance;
+  }
+  header p {
+    color: var(--muted-fg);
+    max-width: 64ch;
+    margin: 0;
+    font-size: 16px;
+  }
+  header p strong { color: var(--fg); font-weight: 500; }
+  .toc {
+    margin: 56px 0 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .toc a {
+    background: var(--card);
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    text-decoration: none;
+    transition: background 120ms ease;
+  }
+  .toc a:hover { background: hsl(0 0% 9%); }
+  .toc a strong { font-size: 15px; font-weight: 600; }
+  .toc a span { color: var(--muted-fg); font-size: 13px; }
+
+  .approach {
+    margin-top: 130px;
+    border-top: 1px solid var(--border);
+    padding-top: 56px;
+  }
+  .approach > .intro {
+    max-width: 64ch;
+    margin: 0 auto 48px;
+    padding: 0 24px;
+    text-align: center;
+  }
+  .approach > .intro h2 {
+    font-size: clamp(28px, 3.5vw, 40px);
+    margin: 12px 0 16px;
+    letter-spacing: -0.015em;
+    line-height: 1.1;
+    font-weight: 600;
+  }
+  .approach > .intro p {
+    color: var(--muted-fg);
+    margin: 0;
+  }
+  .approach > .intro p strong { color: var(--fg); font-weight: 500; }
+  .pill {
+    display: inline-block;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    background: var(--card);
+  }
+  .footnote {
+    color: var(--muted-fg);
+    font-size: 12px;
+    text-align: center;
+    margin-top: 18px;
+    font-style: italic;
+  }
+
+  /* ─────────────  STAGE PRIMITIVES (shared)  ───────────── */
+  .cell {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px 16px;
+    overflow: hidden;
+    position: relative;
+    min-height: 0;
+  }
+  .cell-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .cell-head .label {
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .cell-head .label .num {
+    color: hsl(0 0% 36%);
+    font-weight: 500;
+  }
+  .cell-head .meta {
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--muted-fg);
+    font-family: ui-monospace, monospace;
+  }
+  .cell-title {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: var(--fg);
+  }
+  .cell-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: hsl(0 0% 4%);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+
+  /* ── HEX HEATMAP — one byte = one colored square ── */
+  .hex-heat {
+    display: grid;
+    grid-template-columns: repeat(22, 1fr);
+    gap: 2px;
+    width: 100%;
+    aspect-ratio: 1;
+  }
+  .hex-heat .b {
+    background: hsl(0 0% 11%);
+    border-radius: 1px;
+    transition: background 200ms ease, transform 200ms ease, box-shadow 200ms ease;
+  }
+  .hex-heat .b.amber { background: var(--amber); opacity: 0.9; }
+  .hex-heat .b.sky { background: var(--sky); opacity: 0.85; }
+  .hex-heat .b.emerald { background: var(--emerald); opacity: 0.9; }
+  .hex-heat .b.brand { background: var(--brand); opacity: 0.85; }
+  .hex-heat .b.slate { background: hsl(0 0% 50%); opacity: 0.55; }
+  .hex-heat .b.delim { background: hsl(0 0% 22%); opacity: 0.7; }
+  .hex-heat-meta {
+    font-family: ui-monospace, monospace;
+    font-size: 10.5px;
+    color: var(--muted-fg);
+    text-align: center;
+    margin-top: 8px;
+  }
+  .hex-heat-meta .strong { color: hsl(0 0% 80%); }
+
+  /* ── HEX FIELD BAND — proportional segments ── */
+  .hex-band {
+    display: flex;
+    width: 100%;
+    height: 32px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    background: hsl(0 0% 8%);
+  }
+  .hex-band .seg {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-right: 1px solid hsl(0 0% 4%);
+    transition: filter 200ms ease;
+    overflow: hidden;
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: default;
+  }
+  .hex-band .seg:last-child { border-right: none; }
+  .hex-band .seg.amber { background: var(--amber-soft); color: var(--amber); }
+  .hex-band .seg.sky { background: var(--sky-soft); color: var(--sky); }
+  .hex-band .seg.emerald { background: var(--emerald-soft); color: var(--emerald); }
+  .hex-band .seg.brand { background: var(--brand-soft); color: var(--brand); }
+  .hex-band .seg.slate { background: hsl(0 0% 100% / 0.05); color: hsl(0 0% 75%); }
+  .hex-band .seg.delim { background: hsl(0 0% 11%); color: hsl(0 0% 40%); }
+  .hex-band-axis {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    color: var(--muted-fg);
+    letter-spacing: 0.04em;
+  }
+
+  /* ── HEX HEX-START — first-N hex digits ── */
+  .hex-mini {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 4px;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+  }
+  .hex-mini .b {
+    text-align: center;
+    padding: 4px 2px;
+    background: hsl(0 0% 8%);
+    border-radius: 3px;
+    color: hsl(0 0% 60%);
+    transition: background 200ms ease, color 200ms ease;
+  }
+  .hex-mini .b.amber { color: var(--amber); background: var(--amber-soft); }
+  .hex-mini .b.sky { color: var(--sky); background: var(--sky-soft); }
+  .hex-mini .b.emerald { color: var(--emerald); background: var(--emerald-soft); }
+  .hex-mini .b.brand { color: var(--brand); background: var(--brand-soft); }
+  .hex-mini .b.slate { color: hsl(0 0% 80%); background: hsl(0 0% 100% / 0.04); }
+  .hex-mini .b.delim { color: hsl(0 0% 40%); }
+  .hex-mini-suffix {
+    margin-top: 8px;
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--muted-fg);
+    text-align: center;
+  }
+
+  /* ── ASCII ── */
+  .ascii-stream {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    line-height: 1.85;
+    color: hsl(0 0% 78%);
+    word-break: break-all;
+  }
+  .ascii-tag {
+    display: inline-block;
+    padding: 1px 5px;
+    margin: 0 2px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    vertical-align: middle;
+    line-height: 1.4;
+    transition: background 200ms ease, border-color 200ms ease, color 200ms ease;
+  }
+  .ascii-tag.np { color: var(--amber); border-color: var(--amber-soft); background: var(--amber-soft); }
+  .ascii-tag.eq { color: var(--sky); border-color: var(--sky-soft); background: var(--sky-soft); }
+  .ascii-tag.eom { color: var(--brand); border-color: var(--brand-soft); background: var(--brand-soft); }
+  .ascii-key { color: var(--sky); }
+  .ascii-key.k-postqueue { color: var(--amber); font-weight: 600; }
+  .ascii-key.k-messageid { color: var(--brand); }
+  .ascii-key.k-token { color: var(--emerald); }
+  .ascii-val { color: hsl(0 0% 82%); }
+  .ascii-val.b64 { color: hsl(0 0% 58%); }
+
+  /* ── FIELDS ── */
+  .fields-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .field-row {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 10px;
+    padding: 7px 9px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: hsl(0 0% 5%);
+    align-items: center;
+    transition: background 200ms ease, border-color 200ms ease;
+  }
+  .field-row .k {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--muted-fg);
+    font-weight: 600;
+  }
+  .field-row .v {
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: hsl(0 0% 80%);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .field-row.f-amber { border-left: 2px solid var(--amber); }
+  .field-row.f-amber .k { color: var(--amber); }
+  .field-row.f-sky { border-left: 2px solid var(--sky); }
+  .field-row.f-sky .k { color: var(--sky); }
+  .field-row.f-emerald { border-left: 2px solid var(--emerald); }
+  .field-row.f-emerald .k { color: var(--emerald); }
+  .field-row.f-brand { border-left: 2px solid var(--brand); }
+  .field-row.f-brand .k { color: var(--brand); }
+  .field-row.f-slate .v { color: hsl(0 0% 78%); }
+
+  /* ── ACTION ── */
+  .action-card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .action-headline {
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    color: var(--fg);
+    line-height: 1.2;
+  }
+  .action-headline .strong {
+    color: var(--amber);
+    font-weight: 700;
+  }
+  .action-headline .pulse {
+    background: var(--amber-soft);
+    padding: 0 4px;
+    border-radius: 4px;
+  }
+  .action-summary {
+    color: hsl(0 0% 84%);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  .action-summary span[data-field] {
+    border-bottom: 1px dotted hsl(0 0% 34%);
+    padding-bottom: 1px;
+    transition: color 200ms ease, border-color 200ms ease, background 200ms ease;
+  }
+  .action-summary span.f-amber { color: var(--amber); }
+  .action-summary span.f-sky { color: var(--sky); }
+  .action-summary span.f-emerald { color: var(--emerald); }
+  .action-summary span.f-brand { color: var(--brand); }
+  .action-facts {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 18px;
+  }
+  .action-facts li {
+    display: flex;
+    justify-content: space-between;
+    border-bottom: 1px dashed hsl(0 0% 14%);
+    padding: 4px 0;
+    font-size: 11.5px;
+    transition: background 200ms ease;
+    border-radius: 3px;
+  }
+  .action-facts li span:first-child { color: var(--muted-fg); }
+  .action-facts li span:last-child { color: var(--fg); font-weight: 500; }
+
+  /* ─────────────  CROSS-LINKED HOVER  ─────────────
+     Same logic as previous file: body gets a class
+     `field-{key}` based on what's hovered, CSS reacts.   */
+  body.linked .has-field [data-field]:not([data-field="separator"]) {
+    opacity: 0.42;
+    transition: opacity 220ms ease;
+  }
+  body.linked.field-postqueue .has-field [data-field="postqueue"],
+  body.linked.field-version   .has-field [data-field="version"],
+  body.linked.field-queue     .has-field [data-field="queue"],
+  body.linked.field-token     .has-field [data-field="token"],
+  body.linked.field-messagetype .has-field [data-field="messagetype"],
+  body.linked.field-messageid .has-field [data-field="messageid"] { opacity: 1; }
+
+  body.linked.field-postqueue .has-field [data-field="postqueue"] { background: var(--amber-glow); border-color: var(--amber); }
+  body.linked.field-version   .has-field [data-field="version"]   { background: var(--slate-glow); border-color: hsl(0 0% 40%); }
+  body.linked.field-queue     .has-field [data-field="queue"]     { background: var(--sky-glow); border-color: var(--sky); }
+  body.linked.field-token     .has-field [data-field="token"]     { background: var(--emerald-glow); border-color: var(--emerald); }
+  body.linked.field-messagetype .has-field [data-field="messagetype"] { background: var(--slate-glow); border-color: hsl(0 0% 40%); }
+  body.linked.field-messageid .has-field [data-field="messageid"] { background: var(--brand-glow); border-color: var(--brand); }
+
+  body.linked .has-field .hex-heat .b[data-field] {
+    box-shadow: 0 0 0 1px hsl(0 0% 0% / 0.7);
+  }
+  body.linked.field-postqueue .has-field .hex-heat .b[data-field="postqueue"],
+  body.linked.field-queue     .has-field .hex-heat .b[data-field="queue"],
+  body.linked.field-token     .has-field .hex-heat .b[data-field="token"],
+  body.linked.field-messageid .has-field .hex-heat .b[data-field="messageid"],
+  body.linked.field-version   .has-field .hex-heat .b[data-field="version"],
+  body.linked.field-messagetype .has-field .hex-heat .b[data-field="messagetype"] {
+    transform: scale(1.55);
+    box-shadow: 0 0 0 1px hsl(0 0% 0%), 0 0 8px currentColor;
+    z-index: 5;
+  }
+  body.linked .has-field [data-field="separator"] { opacity: 0.45; }
+
+  /* swatches under each iteration */
+  .swatches {
+    margin-top: 14px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--muted-fg);
+  }
+  .swatches .grp {
+    display: inline-flex;
+    gap: 8px;
+    margin-left: 10px;
+    vertical-align: middle;
+  }
+  .swatches button {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-family: ui-monospace, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--muted-fg);
+    cursor: pointer;
+    padding: 4px 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 160ms ease, color 160ms ease, border-color 160ms ease;
+  }
+  .swatches button:hover { color: var(--fg); border-color: hsl(0 0% 30%); }
+  .swatches button .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+  }
+  .swatches button.f-amber .dot { background: var(--amber); }
+  .swatches button.f-sky .dot { background: var(--sky); }
+  .swatches button.f-emerald .dot { background: var(--emerald); }
+  .swatches button.f-brand .dot { background: var(--brand); }
+  .swatches button.on { color: var(--fg); background: hsl(0 0% 11%); border-color: hsl(0 0% 30%); }
+
+  /* ═══════════════════════════════════════════════════════════
+     V1A — 2×2 QUAD WITH HEX HEATMAP
+     ═══════════════════════════════════════════════════════════ */
+  .v1a-stage { padding: 0 24px; }
+  .v1a-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 14px;
+    max-width: 940px;
+    margin: 0 auto;
+  }
+  .v1a-grid > .cell { aspect-ratio: 1.05 / 1; }
+  .v1a-grid > .cell .cell-body { display: flex; flex-direction: column; }
+  .v1a-grid > .cell .cell-body.scroll { overflow: auto; }
+  .v1a-active {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    background: hsl(0 0% 8%);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-family: ui-monospace, monospace;
+    font-size: 10.5px;
+    color: var(--muted-fg);
+    letter-spacing: 0.05em;
+    transition: color 200ms ease, border-color 200ms ease;
+  }
+  .v1a-active .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: hsl(0 0% 36%);
+    transition: background 200ms ease;
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     V1B — T-SHAPE: HEX BAND ON TOP, 3 SQUARES BELOW
+     ═══════════════════════════════════════════════════════════ */
+  .v1b-stage { padding: 0 24px; }
+  .v1b-frame {
+    max-width: 1080px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .v1b-band {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px 16px;
+  }
+  .v1b-band .head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .v1b-band .head .label {
+    font-size: 10.5px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .v1b-band .head .label .num { color: hsl(0 0% 36%); font-weight: 500; }
+  .v1b-band .head .meta { font-size: 10.5px; color: var(--muted-fg); font-family: ui-monospace, monospace; }
+  .v1b-band-title { font-size: 13.5px; color: var(--fg); margin-bottom: 10px; }
+  .v1b-band-title .strong { font-weight: 600; }
+  .v1b-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 14px;
+  }
+  .v1b-row > .cell { aspect-ratio: 1.05 / 1; }
+
+  /* ═══════════════════════════════════════════════════════════
+     V1C — SPOTLIGHT (focus square + thumbnails)
+     ═══════════════════════════════════════════════════════════ */
+  .v1c-stage { padding: 0 24px; }
+  .v1c-frame {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 220px;
+    gap: 16px;
+    align-items: stretch;
+    min-height: 540px;
+  }
+  @media (max-width: 800px) {
+    .v1c-frame { grid-template-columns: 1fr; }
+  }
+  .v1c-focus-wrap {
+    position: relative;
+    background: var(--card);
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .v1c-focus-card {
+    position: absolute;
+    inset: 0;
+    padding: 22px 24px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    opacity: 0;
+    transform: scale(0.98);
+    transition: opacity 280ms ease, transform 360ms cubic-bezier(0.2, 0.8, 0.2, 1);
+    pointer-events: none;
+  }
+  .v1c-focus-card.on {
+    opacity: 1;
+    transform: none;
+    pointer-events: auto;
+  }
+  .v1c-focus-card .cell-head .label { font-size: 11px; }
+  .v1c-focus-card .cell-title { font-size: 18px; }
+  .v1c-focus-card .cell-body {
+    flex: 1;
+    overflow: auto;
+    padding: 14px 16px;
+  }
+  .v1c-thumbs {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .v1c-thumb {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    cursor: pointer;
+    transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+    aspect-ratio: 1.4 / 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .v1c-thumb:hover { border-color: hsl(0 0% 30%); background: hsl(0 0% 8%); }
+  .v1c-thumb.active {
+    border-color: var(--fg);
+    background: hsl(0 0% 9%);
+    transform: translateX(-4px);
+    box-shadow: -4px 0 0 0 var(--fg);
+  }
+  .v1c-thumb .head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+  }
+  .v1c-thumb .head .num { color: hsl(0 0% 36%); }
+  .v1c-thumb .title { font-size: 12.5px; color: var(--fg); font-weight: 500; }
+  .v1c-thumb .preview {
+    flex: 1;
+    border: 1px solid var(--border);
+    background: hsl(0 0% 4%);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    line-height: 1.5;
+    color: hsl(0 0% 50%);
+    overflow: hidden;
+    position: relative;
+  }
+  .v1c-thumb .preview::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, transparent 60%, hsl(0 0% 4%));
+    pointer-events: none;
+  }
+  .v1c-thumb-mini {
+    display: grid;
+    grid-template-columns: repeat(22, 1fr);
+    gap: 1px;
+    width: 100%;
+    aspect-ratio: 5 / 1.6;
+  }
+  .v1c-thumb-mini .b {
+    background: hsl(0 0% 14%);
+    border-radius: 1px;
+  }
+  .v1c-thumb-mini .b.amber { background: var(--amber); }
+  .v1c-thumb-mini .b.sky { background: var(--sky); }
+  .v1c-thumb-mini .b.emerald { background: var(--emerald); }
+  .v1c-thumb-mini .b.brand { background: var(--brand); }
+  .v1c-thumb-mini .b.slate { background: hsl(0 0% 60%); opacity: 0.5; }
+  .v1c-thumb-mini .b.delim { background: hsl(0 0% 24%); }
+
+  /* ═══════════════════════════════════════════════════════════
+     V1D — STACKED CARD PEEL (z-stacked squares, peel by hover/click)
+     ═══════════════════════════════════════════════════════════ */
+  .v1d-stage { padding: 0 24px; display: flex; justify-content: center; }
+  .v1d-frame {
+    position: relative;
+    width: 520px;
+    height: 520px;
+    margin: 8px auto 32px;
+  }
+  @media (max-width: 600px) {
+    .v1d-frame { width: 100%; height: 90vw; max-height: 520px; }
+  }
+  .v1d-card {
+    position: absolute;
+    inset: 0;
+    background: var(--card);
+    border: 1px solid var(--border-strong);
+    border-radius: 14px;
+    padding: 20px 22px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    overflow: hidden;
+    transition: transform 480ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 320ms ease, box-shadow 320ms ease;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.5), 0 0 0 1px hsl(0 0% 100% / 0.02) inset;
+    cursor: pointer;
+  }
+  .v1d-card[data-pos="0"] { transform: translate(0px, 0px) rotate(0deg); z-index: 4; }
+  .v1d-card[data-pos="1"] { transform: translate(14px, 14px) rotate(2.5deg); z-index: 3; opacity: 0.95; }
+  .v1d-card[data-pos="2"] { transform: translate(28px, 28px) rotate(5deg); z-index: 2; opacity: 0.85; }
+  .v1d-card[data-pos="3"] { transform: translate(42px, 42px) rotate(7.5deg); z-index: 1; opacity: 0.7; }
+  .v1d-card .cell-body { flex: 1; overflow: auto; padding: 14px 16px; background: hsl(0 0% 4%); border: 1px solid var(--border); border-radius: 8px; }
+  .v1d-card[data-pos="0"]:hover { box-shadow: 0 32px 80px rgba(0,0,0,0.65), 0 0 0 1px hsl(0 0% 100% / 0.03) inset; }
+  .v1d-controls {
+    margin-top: 64px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 14px;
+  }
+  .v1d-controls .label {
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    font-family: ui-monospace, monospace;
+  }
+  .v1d-tabs {
+    display: inline-flex;
+    background: hsl(0 0% 8%);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 3px;
+    gap: 2px;
+  }
+  .v1d-tabs button {
+    background: transparent;
+    border: none;
+    color: var(--muted-fg);
+    font-size: 11.5px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 160ms ease, color 160ms ease;
+  }
+  .v1d-tabs button:hover { color: var(--fg); }
+  .v1d-tabs button.on { background: hsl(0 0% 14%); color: var(--fg); }
+
+  /* hex-heat-mini for stacked variant — slightly bigger heat */
+  .hex-heat-mini { aspect-ratio: 1.6 / 1; }
+
+  /* ─────────────  CLOSING CARD  ───────────── */
+  .closer {
+    margin-top: 140px;
+    padding: 48px 24px;
+    border-top: 1px solid var(--border);
+    text-align: center;
+  }
+  .closer h2 {
+    font-size: clamp(24px, 3vw, 32px);
+    margin: 0 0 12px;
+    font-weight: 600;
+  }
+  .closer p {
+    color: var(--muted-fg);
+    max-width: 60ch;
+    margin: 0 auto;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <p class="eyebrow">V1 · square iterations</p>
+    <h1>Less wall, more reading.</h1>
+    <p>
+      V1 was right but four wide rectangles is too much for one breath of
+      screen. These four iterations all square things up and dial the
+      <strong>HEX</strong> way down — it becomes a heatmap, a band, a
+      thumbnail, a corner. The other three stages (ASCII, fields, action)
+      stay as readable as before. Same hover-link is everywhere.
+    </p>
+  </header>
+
+  <nav class="toc">
+    <a href="#a"><strong>A · 2×2 quad</strong><span>Four squares. HEX is a 22×22 heatmap, no digits.</span></a>
+    <a href="#b"><strong>B · Band header</strong><span>HEX collapses to a thin colored band, three squares below.</span></a>
+    <a href="#c"><strong>C · Spotlight</strong><span>One large focus square + 3 thumbnail cards.</span></a>
+    <a href="#d"><strong>D · Card peel</strong><span>Z-stacked squares; peel through them with tabs.</span></a>
+  </nav>
+
+  <!-- ═════════════════  A — 2×2 QUAD  ═════════════════ -->
+  <section class="approach" id="a">
+    <div class="intro">
+      <span class="pill">A · 2×2 quad</span>
+      <h2>Four squares.</h2>
+      <p>
+        HEX top-left, ASCII top-right, fields bottom-left, action
+        bottom-right. The HEX is now a <strong>22×22 heatmap</strong> — one
+        colored cell per byte, no digits — so it gives you the
+        <em>shape</em> of the packet at a glance instead of asking you to
+        read 482 bytes. Hover anywhere; everything links across all four.
+      </p>
+    </div>
+
+    <div class="v1a-stage">
+      <div class="v1a-grid has-field" id="v1a-grid">
+
+        <div class="cell" data-stage="1">
+          <div class="cell-head">
+            <div class="label"><span class="num">01</span> HEX bytes</div>
+            <span class="meta">482 B</span>
+          </div>
+          <div class="cell-title">Shape of the packet.</div>
+          <div class="cell-body" style="display: flex; align-items: center; justify-content: center; padding: 14px;">
+            <div style="width: 100%; max-width: 320px; display: flex; flex-direction: column; align-items: center;">
+              <div class="hex-heat" data-render="hex-heat"></div>
+              <div class="hex-heat-meta">
+                one cell · one byte · color = field
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="cell" data-stage="2">
+          <div class="cell-head">
+            <div class="label"><span class="num">02</span> ASCII (decoded)</div>
+            <span class="meta">TLV</span>
+          </div>
+          <div class="cell-title">Same bytes, printable.</div>
+          <div class="cell-body scroll" style="overflow: auto;">
+            <div class="ascii-stream" data-render="ascii"></div>
+          </div>
+        </div>
+
+        <div class="cell" data-stage="3">
+          <div class="cell-head">
+            <div class="label"><span class="num">03</span> How we read it</div>
+            <span class="meta">6 fields</span>
+          </div>
+          <div class="cell-title">Six labelled fields.</div>
+          <div class="cell-body scroll" style="overflow: auto;">
+            <div class="fields-list" data-render="fields"></div>
+          </div>
+        </div>
+
+        <div class="cell" data-stage="4">
+          <div class="cell-head">
+            <div class="label"><span class="num">04</span> As an action</div>
+            <span class="meta">intent</span>
+          </div>
+          <div class="cell-title">Print table 12's bill.</div>
+          <div class="cell-body scroll" style="overflow: auto; background: hsl(0 0% 5%);">
+            <div class="action-card" data-render="action"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="swatches">
+        <span class="v1a-active" id="v1a-active">
+          <span class="dot"></span>
+          <span id="v1a-active-name">hover anywhere</span>
+        </span>
+        <span class="grp" id="v1a-swatches"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════════════  B — BAND HEADER  ═════════════════ -->
+  <section class="approach" id="b">
+    <div class="intro">
+      <span class="pill">B · band header</span>
+      <h2>HEX as a ruler.</h2>
+      <p>
+        The HEX dump never wanted to be a square. Here it's a thin
+        proportional band at the top — one segment per field, width
+        scaled to the byte count. You can read it in one glance: the
+        QUEUE payload is huge, everything else is trim. Below, the three
+        squares that actually need the room.
+      </p>
+    </div>
+
+    <div class="v1b-stage">
+      <div class="v1b-frame has-field" id="v1b-frame">
+
+        <div class="v1b-band" data-stage="1">
+          <div class="head">
+            <span class="label"><span class="num">01</span> HEX bytes · field map</span>
+            <span class="meta">482 B</span>
+          </div>
+          <div class="v1b-band-title">
+            <span class="strong">A ruler over the wire.</span>
+            Each segment is one field, width scales with bytes.
+          </div>
+          <div class="hex-band" data-render="hex-band"></div>
+          <div class="hex-band-axis">
+            <span>0</span><span>120</span><span>240</span><span>360</span><span>482</span>
+          </div>
+        </div>
+
+        <div class="v1b-row">
+          <div class="cell" data-stage="2">
+            <div class="cell-head">
+              <div class="label"><span class="num">02</span> ASCII</div>
+              <span class="meta">TLV</span>
+            </div>
+            <div class="cell-title">Same bytes, printable.</div>
+            <div class="cell-body" style="overflow: auto;">
+              <div class="ascii-stream" data-render="ascii"></div>
+            </div>
+          </div>
+
+          <div class="cell" data-stage="3">
+            <div class="cell-head">
+              <div class="label"><span class="num">03</span> How we read it</div>
+              <span class="meta">6 fields</span>
+            </div>
+            <div class="cell-title">Six labelled fields.</div>
+            <div class="cell-body" style="overflow: auto;">
+              <div class="fields-list" data-render="fields"></div>
+            </div>
+          </div>
+
+          <div class="cell" data-stage="4">
+            <div class="cell-head">
+              <div class="label"><span class="num">04</span> As an action</div>
+              <span class="meta">intent</span>
+            </div>
+            <div class="cell-title">Print table 12's bill.</div>
+            <div class="cell-body" style="overflow: auto; background: hsl(0 0% 5%);">
+              <div class="action-card" data-render="action"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════════════  C — SPOTLIGHT  ═════════════════ -->
+  <section class="approach" id="c">
+    <div class="intro">
+      <span class="pill">C · spotlight</span>
+      <h2>One stage front and center, the others as cards.</h2>
+      <p>
+        The action gets the spotlight by default — that's the punchline,
+        and most readers want to land there fast. The other three stages
+        sit on the right as small cards with miniature previews (HEX is a
+        tiny heatmap, ASCII shows the first few tokens, fields shows the
+        first row). Click any thumb to swap focus.
+      </p>
+    </div>
+
+    <div class="v1c-stage">
+      <div class="v1c-frame has-field" id="v1c-frame">
+
+        <div class="v1c-focus-wrap">
+          <!-- Four focus cards stacked, only one visible at a time -->
+          <div class="v1c-focus-card" data-focus="1">
+            <div class="cell-head">
+              <div class="label"><span class="num">01</span> HEX bytes</div>
+              <span class="meta">482 B · heatmap</span>
+            </div>
+            <div class="cell-title">What we sniffed off the wire.</div>
+            <div class="cell-body" style="display: flex; align-items: center; justify-content: center;">
+              <div style="width: 100%; max-width: 360px;">
+                <div class="hex-heat" data-render="hex-heat"></div>
+                <div class="hex-heat-meta">22 × 22 cells · one byte each</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="v1c-focus-card" data-focus="2">
+            <div class="cell-head">
+              <div class="label"><span class="num">02</span> ASCII (decoded)</div>
+              <span class="meta">TLV</span>
+            </div>
+            <div class="cell-title">Same bytes, printable.</div>
+            <div class="cell-body" style="overflow: auto;">
+              <div class="ascii-stream" data-render="ascii"></div>
+            </div>
+          </div>
+
+          <div class="v1c-focus-card" data-focus="3">
+            <div class="cell-head">
+              <div class="label"><span class="num">03</span> How we read it</div>
+              <span class="meta">6 fields</span>
+            </div>
+            <div class="cell-title">Six labelled fields.</div>
+            <div class="cell-body" style="overflow: auto;">
+              <div class="fields-list" data-render="fields"></div>
+            </div>
+          </div>
+
+          <div class="v1c-focus-card on" data-focus="4">
+            <div class="cell-head">
+              <div class="label"><span class="num">04</span> As an action</div>
+              <span class="meta">intent</span>
+            </div>
+            <div class="cell-title">Print table 12's bill.</div>
+            <div class="cell-body" style="overflow: auto; background: hsl(0 0% 5%);">
+              <div class="action-card" data-render="action"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="v1c-thumbs" id="v1c-thumbs">
+          <button class="v1c-thumb" data-focus="1">
+            <div class="head"><span><span class="num">01</span> HEX</span><span>482B</span></div>
+            <div class="title">Shape of the bytes</div>
+            <div class="v1c-thumb-mini" data-render="hex-heat-mini"></div>
+          </button>
+          <button class="v1c-thumb" data-focus="2">
+            <div class="head"><span><span class="num">02</span> ASCII</span><span>TLV</span></div>
+            <div class="title">Decoded text</div>
+            <div class="preview">POSTQUEUE [NP]<br/>PROTOCOLVERSION [EQ] 2 [NP]<br/>QUEUE [EQ] eyJh…M30= [NP]<br/>TOKEN [EQ] 7a3f… [NP]</div>
+          </button>
+          <button class="v1c-thumb" data-focus="3">
+            <div class="head"><span><span class="num">03</span> Fields</span><span>6</span></div>
+            <div class="title">Read as fields</div>
+            <div class="preview">POSTQUEUE = (opcode)<br/>QUEUE = &lt;base64&gt;<br/>TOKEN = 7a3f…<br/>MESSAGEID = p12e…</div>
+          </button>
+          <button class="v1c-thumb active" data-focus="4">
+            <div class="head"><span><span class="num">04</span> Action</span><span>intent</span></div>
+            <div class="title">Print table 12's bill</div>
+            <div class="preview">Action 3 · pre-bill<br/>Table 12, employee 19<br/>session 7a3f…<br/>idemp p12e…</div>
+          </button>
+        </div>
+
+      </div>
+      <p class="footnote">Thumbs on the right click to swap; default focus is the action card.</p>
+    </div>
+  </section>
+
+  <!-- ═════════════════  D — CARD PEEL  ═════════════════ -->
+  <section class="approach" id="d">
+    <div class="intro">
+      <span class="pill">D · card peel</span>
+      <h2>One square at a time, the others fanned behind it.</h2>
+      <p>
+        Four cards, the same square. The frontmost card holds the stage
+        you're reading; the others are visible behind it like a fanned
+        deck. Tab strip below to peel through them. This is the most
+        compact &mdash; the entire pipeline lives in one square's
+        worth of screen, rather than four.
+      </p>
+    </div>
+
+    <div class="v1d-stage">
+      <div class="v1d-frame has-field" id="v1d-frame">
+
+        <div class="v1d-card" data-card="1" data-pos="3">
+          <div class="cell-head">
+            <div class="label"><span class="num">01</span> HEX bytes</div>
+            <span class="meta">482 B</span>
+          </div>
+          <div class="cell-title">What we sniffed.</div>
+          <div class="cell-body" style="display: flex; align-items: center; justify-content: center;">
+            <div style="width: 100%; max-width: 380px;">
+              <div class="hex-heat" data-render="hex-heat"></div>
+              <div class="hex-heat-meta">22 × 22 · one byte each</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="v1d-card" data-card="2" data-pos="2">
+          <div class="cell-head">
+            <div class="label"><span class="num">02</span> ASCII (decoded)</div>
+            <span class="meta">TLV</span>
+          </div>
+          <div class="cell-title">Same bytes, printable.</div>
+          <div class="cell-body" style="overflow: auto;">
+            <div class="ascii-stream" data-render="ascii"></div>
+          </div>
+        </div>
+
+        <div class="v1d-card" data-card="3" data-pos="1">
+          <div class="cell-head">
+            <div class="label"><span class="num">03</span> How we read it</div>
+            <span class="meta">6 fields</span>
+          </div>
+          <div class="cell-title">Six labelled fields.</div>
+          <div class="cell-body" style="overflow: auto;">
+            <div class="fields-list" data-render="fields"></div>
+          </div>
+        </div>
+
+        <div class="v1d-card" data-card="4" data-pos="0">
+          <div class="cell-head">
+            <div class="label"><span class="num">04</span> As an action</div>
+            <span class="meta">intent</span>
+          </div>
+          <div class="cell-title">Print table 12's bill.</div>
+          <div class="cell-body" style="overflow: auto; background: hsl(0 0% 5%);">
+            <div class="action-card" data-render="action"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="v1d-controls">
+        <span class="label">Stage</span>
+        <div class="v1d-tabs" id="v1d-tabs">
+          <button data-card="1">01 · HEX</button>
+          <button data-card="2">02 · ASCII</button>
+          <button data-card="3">03 · Fields</button>
+          <button data-card="4" class="on">04 · Action</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="closer">
+    <h2>My read.</h2>
+    <p>
+      <strong>B (band header)</strong> is the cleanest answer to "less
+      wall" — HEX gets the column-inch it deserves, the three readable
+      stages each get a real square. <strong>A (2×2 quad)</strong> is
+      slightly denser but reads top-left → bottom-right naturally.
+      <strong>C (spotlight)</strong> is the right pick if you want to
+      land readers directly on the action and let curious ones drill back.
+      <strong>D (card peel)</strong> is the most compact but hides the
+      pipeline metaphor — best if it sits alongside other content.
+    </p>
+  </div>
+
+</div>
+
+<script>
+(() => {
+  // ═══════════════  FIXTURE (same as before)  ═══════════════
+  const HEX = "504f535451554555455b4e505d50524f544f434f4c56455253494f4e5b45515d325b4e505d51554555455b45515d65794a68634842575a584a7a61573975496a6f674d437767496d5674634778766557566c535751694f6941784f537767496d6431615751694f6941694f47566a4e444579597a45744e4463315a5330304e57517a4c5745794d6a51745a6a4e6d5a475a685a574e694f54457949697767496d6c6b496a6f674f437767496d39795a47567963794936494674644c43416963475679633239756330353162574a6c636949364944417349434a7a6447463064584d694f6941784c43416964474669624755694f6941784d697767496e5270625755694f6941784e7a4d334d7a6b304f4445794d4445794c43416951574e3061573975496a6f674d33303d5b4e505d544f4b454e5b45515d37613366396332652d316434622d346636612d396238652d3263356438663161306237635b4e505d4d455353414745545950455b45515d584450656f706c652e456e7469746965732e506f7374416374696f6e4d6573736167655b4e505d4d45535341474549445b45515d70313265346238612d316632392d346137632d396536622d3466613032633831336531325b454f4d5d";
+  const ASCII = "POSTQUEUE[NP]PROTOCOLVERSION[EQ]2[NP]QUEUE[EQ]eyJhcHBWZXJzaW9uIjogMCwgImVtcGxveWVlSWQiOiAxOSwgImd1aWQiOiAiOGVjNDEyYzEtNDc1ZS00NWQzLWEyMjQtZjNmZGZhZWNiOTEyIiwgImlkIjogOCwgIm9yZGVycyI6IFtdLCAicGVyc29uc051bWJlciI6IDAsICJzdGF0dXMiOiAxLCAidGFibGUiOiAxMiwgInRpbWUiOiAxNzM3Mzk0ODEyMDEyLCAiQWN0aW9uIjogM30=[NP]TOKEN[EQ]7a3f9c2e-1d4b-4f6a-9b8e-2c5d8f1a0b7c[NP]MESSAGETYPE[EQ]XDPeople.Entities.PostActionMessage[NP]MESSAGEID[EQ]p12e4b8a-1f29-4a7c-9e6b-4fa02c813e12[EOM]";
+  const NP = "[NP]", EQ = "[EQ]", EOM = "[EOM]";
+
+  // field byte ranges
+  function rangeBetween(after, until) {
+    const start = ASCII.indexOf(after);
+    if (start < 0) return null;
+    const end = ASCII.indexOf(until, start + after.length);
+    return { start, end: end < 0 ? ASCII.length : end };
+  }
+  const FIELD_RANGES = {
+    postqueue:  { start: 0, end: "POSTQUEUE".length },
+    version:    rangeBetween("PROTOCOLVERSION", NP),
+    queue:      rangeBetween("QUEUE" + EQ, NP),
+    token:      rangeBetween("TOKEN" + EQ, NP),
+    messagetype: rangeBetween("MESSAGETYPE" + EQ, NP),
+    messageid:  rangeBetween("MESSAGEID" + EQ, EOM)
+  };
+  function withKeyPrefix(key, prefix) {
+    const r = FIELD_RANGES[key];
+    if (!r) return;
+    const i = ASCII.indexOf(prefix);
+    if (i >= 0 && i < r.start) r.start = i;
+  }
+  withKeyPrefix("version", "PROTOCOLVERSION");
+  withKeyPrefix("queue", "QUEUE" + EQ);
+  withKeyPrefix("token", "TOKEN" + EQ);
+  withKeyPrefix("messagetype", "MESSAGETYPE" + EQ);
+  withKeyPrefix("messageid", "MESSAGEID" + EQ);
+
+  const FIELD_KEYS = ["postqueue", "version", "queue", "token", "messagetype", "messageid"];
+  const FIELD_COLOR = {
+    postqueue: "amber", version: "slate", queue: "sky",
+    token: "emerald", messagetype: "slate", messageid: "brand",
+    separator: ""
+  };
+  const FIELD_LABEL = {
+    postqueue: "POSTQUEUE", version: "PROTOCOLVERSION", queue: "QUEUE",
+    token: "TOKEN", messagetype: "MESSAGETYPE", messageid: "MESSAGEID"
+  };
+  function fieldAtByte(idx) {
+    for (const k of FIELD_KEYS) {
+      const r = FIELD_RANGES[k];
+      if (r && idx >= r.start && idx < r.end) return k;
+    }
+    return "separator";
+  }
+
+  // ═══════════════  RENDERERS  ═══════════════
+
+  // HEX heatmap — 22 × 22 grid of one-byte cells
+  function renderHexHeat(host) {
+    host.innerHTML = "";
+    const total = HEX.length / 2;
+    for (let i = 0; i < 22 * 22; i++) {
+      const span = document.createElement("span");
+      span.className = "b";
+      if (i < total) {
+        const f = fieldAtByte(i);
+        span.classList.add(FIELD_COLOR[f] || "delim");
+        span.dataset.field = f;
+      } else {
+        span.style.opacity = "0";
+      }
+      host.appendChild(span);
+    }
+  }
+
+  // HEX heatmap mini — same shape but smaller cells, used in spotlight thumbs
+  function renderHexHeatMini(host) {
+    host.innerHTML = "";
+    const total = HEX.length / 2;
+    // for the thumb we'll render a wider 22-col strip — 7 rows = 154 cells,
+    // sample every ~3 bytes
+    const rows = 7;
+    const cols = 22;
+    for (let i = 0; i < rows * cols; i++) {
+      const span = document.createElement("span");
+      span.className = "b";
+      const sampleByte = Math.floor(i * (total / (rows * cols)));
+      if (sampleByte < total) {
+        const f = fieldAtByte(sampleByte);
+        span.classList.add(FIELD_COLOR[f] || "delim");
+        span.dataset.field = f;
+      }
+      host.appendChild(span);
+    }
+  }
+
+  // HEX field band — 6 proportional segments
+  function renderHexBand(host) {
+    host.innerHTML = "";
+    const total = ASCII.length;
+    // take field ranges in source order
+    const segs = [];
+    let cursor = 0;
+    for (const k of FIELD_KEYS) {
+      const r = FIELD_RANGES[k];
+      if (!r) continue;
+      // gap before this field — render as a "separator" segment
+      if (r.start > cursor) {
+        segs.push({ field: "separator", start: cursor, end: r.start });
+      }
+      segs.push({ field: k, start: r.start, end: r.end });
+      cursor = r.end;
+    }
+    if (cursor < total) segs.push({ field: "separator", start: cursor, end: total });
+
+    for (const s of segs) {
+      const w = ((s.end - s.start) / total) * 100;
+      if (w < 0.6) continue; // skip tiny separator slices
+      const span = document.createElement("span");
+      span.className = "seg " + (FIELD_COLOR[s.field] || "delim");
+      span.style.width = w + "%";
+      span.dataset.field = s.field;
+      const label = FIELD_LABEL[s.field] || "";
+      const bytes = (s.end - s.start);
+      // fit-as-much-as-possible label
+      if (w > 12 && label) span.textContent = label + " · " + bytes + "B";
+      else if (w > 6 && label) span.textContent = label;
+      else if (w > 3 && label) span.textContent = label.slice(0, 4);
+      host.appendChild(span);
+    }
+  }
+
+  // ASCII renderer (same as previous file)
+  function tokenize(ascii) {
+    const ds = [NP, EQ, EOM];
+    const out = [];
+    let cursor = 0;
+    while (cursor < ascii.length) {
+      let nextDelim = null, nextIdx = -1;
+      for (const d of ds) {
+        const idx = ascii.indexOf(d, cursor);
+        if (idx !== -1 && (nextIdx === -1 || idx < nextIdx)) { nextIdx = idx; nextDelim = d; }
+      }
+      if (nextDelim === null) { out.push({ kind: "text", value: ascii.slice(cursor), at: cursor }); break; }
+      if (nextIdx > cursor) out.push({ kind: "text", value: ascii.slice(cursor, nextIdx), at: cursor });
+      out.push({ kind: "delim", value: nextDelim, at: nextIdx });
+      cursor = nextIdx + nextDelim.length;
+    }
+    return out;
+  }
+  function renderAscii(host) {
+    host.innerHTML = "";
+    const tokens = tokenize(ASCII);
+    for (const t of tokens) {
+      if (t.kind === "delim") {
+        const f = fieldAtByte(t.at);
+        const cls = t.value === EOM ? "eom" : (t.value === EQ ? "eq" : "np");
+        const span = document.createElement("span");
+        span.className = "ascii-tag " + cls;
+        span.dataset.field = f === "separator" ? "separator" : f;
+        span.textContent = t.value.slice(1, -1);
+        host.appendChild(span);
+        continue;
+      }
+      const parts = t.value.split(/(POSTQUEUE|PROTOCOLVERSION|QUEUE|TOKEN|MESSAGETYPE|MESSAGEID)/);
+      let cursor = t.at;
+      for (const part of parts) {
+        if (part === "") continue;
+        const at = cursor;
+        const f = fieldAtByte(at);
+        const isKey = ["POSTQUEUE","PROTOCOLVERSION","QUEUE","TOKEN","MESSAGETYPE","MESSAGEID"].includes(part);
+        const span = document.createElement("span");
+        span.className = "ascii-val";
+        span.dataset.field = f;
+        if (isKey) {
+          span.className = "ascii-key k-" + part.toLowerCase();
+        } else if (f === "queue") {
+          span.classList.add("b64");
+        }
+        span.textContent = part;
+        host.appendChild(span);
+        cursor += part.length;
+      }
+    }
+  }
+
+  // FIELDS
+  const FIELDS = [
+    { key: "postqueue",  k: "POSTQUEUE",       v: "(opcode — what to do)",                color: "amber" },
+    { key: "version",    k: "PROTOCOLVERSION", v: "2",                                    color: "slate" },
+    { key: "queue",      k: "QUEUE",           v: "<base64 envelope · 256 B>",            color: "sky" },
+    { key: "token",      k: "TOKEN",           v: "7a3f9c2e-1d4b-4f6a-9b8e-2c5d8f1a0b7c", color: "emerald" },
+    { key: "messagetype",k: "MESSAGETYPE",     v: "XDPeople.Entities.PostActionMessage",  color: "slate" },
+    { key: "messageid",  k: "MESSAGEID",       v: "p12e4b8a-1f29-4a7c-9e6b-4fa02c813e12", color: "brand" }
+  ];
+  function renderFields(host) {
+    host.innerHTML = "";
+    for (const f of FIELDS) {
+      const row = document.createElement("div");
+      row.className = "field-row f-" + f.color;
+      row.dataset.field = f.key;
+      row.innerHTML = `<div class="k">${f.k}</div><div class="v">${f.v}</div>`;
+      host.appendChild(row);
+    }
+  }
+
+  function renderAction(host) {
+    host.innerHTML = `
+      <div class="action-headline">
+        Open <span class="strong" data-field="queue">table&nbsp;12</span>'s
+        <span class="strong pulse" data-field="postqueue">pre-bill</span>.
+      </div>
+      <div class="action-summary">
+        On behalf of <span class="f-sky" data-field="queue">employee&nbsp;19</span>,
+        with the box's <span class="f-emerald" data-field="token">session token</span>,
+        keyed off both an in-payload <span class="f-sky" data-field="queue">guid</span>
+        and a protocol-level <span class="f-brand" data-field="messageid">message&nbsp;id</span>
+        — so a duplicate hit doesn't double-print.
+      </div>
+      <ul class="action-facts">
+        <li data-field="queue"><span>Action</span><span>3 · pre-bill</span></li>
+        <li data-field="queue"><span>Table</span><span>12</span></li>
+        <li data-field="queue"><span>Employee</span><span>19</span></li>
+        <li data-field="queue"><span>Captured at</span><span>17:40 UTC</span></li>
+        <li data-field="token"><span>Session</span><span>7a3f&hellip;0b7c</span></li>
+        <li data-field="messageid"><span>Message id</span><span>p12e&hellip;3e12</span></li>
+        <li data-field="version"><span>Protocol</span><span>v2</span></li>
+        <li data-field="messagetype"><span>Class</span><span>PostActionMessage</span></li>
+      </ul>
+    `;
+  }
+
+  // run all renderers
+  document.querySelectorAll('[data-render="hex-heat"]').forEach(renderHexHeat);
+  document.querySelectorAll('[data-render="hex-heat-mini"]').forEach(renderHexHeatMini);
+  document.querySelectorAll('[data-render="hex-band"]').forEach(renderHexBand);
+  document.querySelectorAll('[data-render="ascii"]').forEach(renderAscii);
+  document.querySelectorAll('[data-render="fields"]').forEach(renderFields);
+  document.querySelectorAll('[data-render="action"]').forEach(renderAction);
+
+  // ═══════════════  CROSS-LINKED HOVER  ═══════════════
+  let activeField = null;
+  function setField(f) {
+    if (f === activeField) return;
+    activeField = f;
+    FIELD_KEYS.forEach(k => document.body.classList.remove("field-" + k));
+    document.body.classList.toggle("linked", !!f);
+    if (f && f !== "separator") document.body.classList.add("field-" + f);
+    // V1A active-field indicator
+    const aDot = document.querySelector("#v1a-active .dot");
+    const aName = document.getElementById("v1a-active-name");
+    if (aDot && aName) {
+      aDot.style.background = f && f !== "separator" ? `var(--${FIELD_COLOR[f]})` : "hsl(0 0% 36%)";
+      aName.textContent = f && FIELD_LABEL[f] ? FIELD_LABEL[f] : "hover anywhere";
+    }
+  }
+  document.addEventListener("mouseover", (ev) => {
+    const t = ev.target.closest("[data-field]");
+    if (!t) return;
+    setField(t.dataset.field || null);
+  });
+  document.addEventListener("mouseout", (ev) => {
+    if (!ev.relatedTarget || !ev.relatedTarget.closest) return;
+    if (!ev.relatedTarget.closest("[data-field]")) setField(null);
+  });
+
+  // V1A swatches — click to pin
+  const sw = document.getElementById("v1a-swatches");
+  if (sw) {
+    const items = [
+      { f: "postqueue", l: "POSTQUEUE", c: "amber" },
+      { f: "queue", l: "QUEUE", c: "sky" },
+      { f: "token", l: "TOKEN", c: "emerald" },
+      { f: "messageid", l: "MESSAGEID", c: "brand" }
+    ];
+    let pinned = null;
+    for (const it of items) {
+      const b = document.createElement("button");
+      b.className = "f-" + it.c;
+      b.innerHTML = `<span class="dot"></span>${it.l}`;
+      b.addEventListener("click", () => {
+        if (pinned === it.f) { pinned = null; setField(null); }
+        else { pinned = it.f; setField(it.f); }
+        sw.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+        if (pinned) b.classList.add("on");
+      });
+      b.addEventListener("mouseenter", () => { if (!pinned) setField(it.f); });
+      b.addEventListener("mouseleave", () => { if (!pinned) setField(null); });
+      sw.appendChild(b);
+    }
+  }
+
+  // ═══════════════  V1C — SPOTLIGHT  ═══════════════
+  const v1cThumbs = document.querySelectorAll("#v1c-thumbs .v1c-thumb");
+  const v1cFocus = document.querySelectorAll(".v1c-focus-card");
+  function setV1cFocus(idx) {
+    v1cThumbs.forEach(t => t.classList.toggle("active", t.dataset.focus === idx));
+    v1cFocus.forEach(c => c.classList.toggle("on", c.dataset.focus === idx));
+  }
+  v1cThumbs.forEach(t => {
+    t.addEventListener("click", () => setV1cFocus(t.dataset.focus));
+  });
+
+  // ═══════════════  V1D — CARD PEEL  ═══════════════
+  const v1dFrame = document.getElementById("v1d-frame");
+  const v1dTabs = document.querySelectorAll("#v1d-tabs button");
+  function setV1dFront(cardId) {
+    if (!v1dFrame) return;
+    // current order: which card is at which position
+    const cards = Array.from(v1dFrame.querySelectorAll(".v1d-card"));
+    const front = cards.find(c => c.dataset.card === cardId);
+    if (!front) return;
+    // build the order: front first, then the others in card-id order
+    const others = cards.filter(c => c.dataset.card !== cardId)
+      .sort((a, b) => parseInt(a.dataset.card) - parseInt(b.dataset.card));
+    const order = [front, ...others];
+    order.forEach((c, i) => {
+      c.dataset.pos = String(i);
+    });
+    v1dTabs.forEach(t => t.classList.toggle("on", t.dataset.card === cardId));
+  }
+  v1dTabs.forEach(t => {
+    t.addEventListener("click", () => setV1dFront(t.dataset.card));
+  });
+  // also: click a back card to bring it forward
+  if (v1dFrame) {
+    v1dFrame.addEventListener("click", (ev) => {
+      const card = ev.target.closest(".v1d-card");
+      if (!card) return;
+      if (card.dataset.pos === "0") return; // already in front
+      setV1dFront(card.dataset.card);
+    });
+  }
+
+})();
+</script>
+</body>
+</html>

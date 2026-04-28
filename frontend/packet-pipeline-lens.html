@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Packet pipeline — the reading lens (saved for later)</title>
+<style>
+  :root {
+    --bg: hsl(0 0% 4%);
+    --fg: hsl(0 0% 92%);
+    --muted-fg: hsl(0 0% 62%);
+    --card: hsl(0 0% 6%);
+    --border: hsl(0 0% 15%);
+    --radius: 12px;
+
+    --amber: #f5b945;
+    --amber-soft: #f5b94522;
+    --sky: #56b8ef;
+    --sky-soft: #56b8ef22;
+    --emerald: #4cc69a;
+    --emerald-soft: #4cc69a22;
+    --brand: #a78bfa;
+    --brand-soft: #a78bfa22;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    line-height: 1.55;
+  }
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+  }
+
+  .page {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 80px 24px 160px;
+  }
+  header h1 {
+    font-size: clamp(36px, 5vw, 56px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    margin: 16px 0 18px;
+  }
+  header p {
+    color: var(--muted-fg);
+    max-width: 60ch;
+    margin: 0;
+    font-size: 16px;
+  }
+  header p strong { color: var(--fg); font-weight: 500; }
+  .pill {
+    display: inline-block;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+    background: var(--card);
+  }
+
+  .demo {
+    margin-top: 64px;
+    padding: 0 24px;
+  }
+
+  /* ─────────────  THE READING LENS  ───────────── */
+  .e-frame {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    padding: 24px 24px 28px;
+  }
+  .e-readout {
+    min-height: 96px;
+    margin-bottom: 18px;
+    padding: 16px 18px;
+    background: hsl(0 0% 4%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 18px;
+    align-items: start;
+  }
+  .e-readout .which {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .e-readout .which .label {
+    font-size: 10px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted-fg);
+  }
+  .e-readout .which .name {
+    font-family: ui-monospace, monospace;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .e-readout .which.amber .name { color: var(--amber); }
+  .e-readout .which.sky .name { color: var(--sky); }
+  .e-readout .which.emerald .name { color: var(--emerald); }
+  .e-readout .which.brand .name { color: var(--brand); }
+  .e-readout .which.muted .name { color: var(--muted-fg); }
+  .e-readout .copy {
+    color: hsl(0 0% 82%);
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  .e-readout .copy b { color: var(--fg); font-weight: 500; }
+  .e-stream-wrap {
+    position: relative;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background:
+      linear-gradient(90deg, hsl(0 0% 5%), hsl(0 0% 6%) 50%, hsl(0 0% 5%));
+    padding: 20px 0;
+    user-select: none;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(0 0% 24%) transparent;
+  }
+  .e-stream-wrap::-webkit-scrollbar { height: 6px; }
+  .e-stream-wrap::-webkit-scrollbar-thumb {
+    background: hsl(0 0% 22%);
+    border-radius: 999px;
+  }
+  .e-stream {
+    position: relative;
+    height: 56px;
+  }
+  .e-byte {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+    color: hsl(0 0% 60%);
+    padding: 6px 4px;
+    border-radius: 3px;
+    transition: color 200ms ease, background 200ms ease;
+  }
+  .e-byte.in-lens.amber { color: var(--amber); background: var(--amber-soft); }
+  .e-byte.in-lens.sky { color: var(--sky); background: var(--sky-soft); }
+  .e-byte.in-lens.emerald { color: var(--emerald); background: var(--emerald-soft); }
+  .e-byte.in-lens.brand { color: var(--brand); background: var(--brand-soft); }
+  .e-byte.in-lens.muted { color: hsl(0 0% 88%); }
+  .e-lens {
+    position: absolute;
+    top: 6px; bottom: 6px;
+    width: 200px;
+    border: 1.5px solid hsl(0 0% 90%);
+    border-radius: 18px;
+    background:
+      radial-gradient(circle at 30% 30%, rgba(255,255,255,0.06), transparent 60%),
+      rgba(255,255,255,0.02);
+    backdrop-filter: blur(0.4px);
+    box-shadow:
+      inset 0 0 22px rgba(255,255,255,0.04),
+      0 6px 28px rgba(0,0,0,0.6),
+      0 0 0 1px rgba(255,255,255,0.06);
+    cursor: grab;
+    z-index: 10;
+    transition: box-shadow 200ms ease;
+  }
+  .e-lens:active { cursor: grabbing; }
+  .e-lens::before {
+    content: "";
+    position: absolute;
+    top: 50%; left: 12px;
+    transform: translateY(-50%);
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.4);
+  }
+  .e-lens::after {
+    content: "drag ↔";
+    position: absolute;
+    bottom: -22px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: ui-monospace, monospace;
+    font-size: 9.5px;
+    color: var(--muted-fg);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    pointer-events: none;
+    transition: opacity 200ms ease;
+  }
+  .e-lens.has-moved::after { opacity: 0; }
+  .e-zones {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .e-zone-tick {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 1px;
+    background: hsl(0 0% 14%);
+  }
+  .e-tip {
+    margin-top: 10px;
+    font-size: 11.5px;
+    color: var(--muted-fg);
+    text-align: center;
+    font-style: italic;
+  }
+
+  .footnote {
+    color: var(--muted-fg);
+    font-size: 12px;
+    text-align: center;
+    margin-top: 32px;
+    font-style: italic;
+    max-width: 60ch;
+    margin-left: auto;
+    margin-right: auto;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <p class="eyebrow">Saved for later · the reading lens</p>
+    <h1>The reading lens.</h1>
+    <p>
+      One long byte stream and a draggable glass lens. Wherever the lens
+      sits, a panel above explains that region in plain language. Best
+      suited for a <strong>docs deep-dive</strong> or annotated chapter
+      page where the reader is in slow-reading mode and has the room to
+      run their finger along the wire.
+    </p>
+    <p style="margin-top: 14px;">
+      <span class="pill">Source · packet-transformation-explorations.html · Approach E</span>
+    </p>
+  </header>
+
+  <div class="demo">
+    <div class="e-frame">
+      <div class="e-readout">
+        <div class="which" id="e-which">
+          <span class="label">Lens is on</span>
+          <span class="name">POSTQUEUE</span>
+        </div>
+        <div class="copy" id="e-copy">
+          The opcode. <b>"Hey box, I'm posting something to your queue."</b>
+          Always the very first nine bytes of any message of this kind.
+        </div>
+      </div>
+
+      <div class="e-stream-wrap" id="e-wrap">
+        <div class="e-zones" id="e-zones"></div>
+        <div class="e-stream" id="e-stream"></div>
+        <div class="e-lens" id="e-lens" tabindex="0" role="slider" aria-label="Reading lens"></div>
+      </div>
+      <p class="e-tip">Drag the glassy rectangle &mdash; it snaps to whatever zone of the wire it&rsquo;s closest to. Arrow keys also work.</p>
+    </div>
+
+    <p class="footnote">
+      Future home: a docs page like <span class="mono">/docs/protocol/anatomy-of-a-pre-bill</span>,
+      where the lens can stretch across a full reading-width column with
+      enough horizontal room for the byte stream to breathe.
+    </p>
+  </div>
+</div>
+
+<script>
+(() => {
+  const eStream = document.getElementById("e-stream");
+  const eZones = document.getElementById("e-zones");
+  const eLens = document.getElementById("e-lens");
+  const eWrap = document.getElementById("e-wrap");
+  const eWhich = document.getElementById("e-which");
+  const eCopy = document.getElementById("e-copy");
+
+  const E_TEXT =
+    "POSTQUEUE [NP] PROTOCOLVERSION [EQ] 2 [NP] QUEUE [EQ] eyJ…(base64)…M30= [NP] TOKEN [EQ] 7a3f-…-0b7c [NP] MESSAGETYPE [EQ] XDPeople.PostActionMessage [NP] MESSAGEID [EQ] p12e-…-3e12 [EOM]";
+
+  const E_ZONE_DEFS = [
+    { name: "POSTQUEUE",           color: "amber",   match: /POSTQUEUE/, copy: `The opcode. <b>"Hey box, I'm posting something to your queue."</b> Always the very first nine bytes of any message of this kind.` },
+    { name: "[NP]",                color: "muted",   match: /\[NP\]/,    copy: `A separator — "next field". Like a comma between entries in an address book. Repeats throughout.` },
+    { name: "PROTOCOLVERSION = 2", color: "muted",   match: /PROTOCOLVERSION \[EQ\] 2/, copy: `Version tag. The handheld is speaking <b>v2</b> of this protocol. Drift here would mean a mismatched client.` },
+    { name: "QUEUE = <base64>",    color: "sky",     match: /QUEUE \[EQ\] eyJ…\(base64\)…M30=/, copy: `The actual payload, wrapped in <b>Base64</b>. An envelope. Decode it and you get plain JSON — the real command.` },
+    { name: "TOKEN = uuid",        color: "emerald", match: /TOKEN \[EQ\] 7a3f-…-0b7c/, copy: `The session token. The handheld got this earlier from a separate auth call; it proves it's a known device.` },
+    { name: "MESSAGETYPE",         color: "muted",   match: /MESSAGETYPE \[EQ\] XDPeople\.PostActionMessage/, copy: `<b>A leaked C# class name.</b> Mildly embarrassing for the vendor, very helpful for us — we now know how their server routes this.` },
+    { name: "MESSAGEID = uuid",    color: "brand",   match: /MESSAGEID \[EQ\] p12e-…-3e12/, copy: `<b>Idempotency key.</b> Replay-safe. Send the same message twice and the box will only act once.` },
+    { name: "[EOM]",               color: "brand",   match: /\[EOM\]/, copy: `End of message. Last five bytes. The TCP framing has no length prefix — this terminator is the only signal that we're done.` }
+  ];
+
+  const E_CHARS = E_TEXT.split("");
+  const E_CHAR_W = 8.4;
+  const charNodes = [];
+  E_CHARS.forEach((ch, i) => {
+    const span = document.createElement("span");
+    span.className = "e-byte";
+    span.textContent = (ch === " " ? "·" : ch);
+    if (ch === " ") span.style.opacity = "0.3";
+    span.style.left = (i * E_CHAR_W) + "px";
+    span.dataset.idx = i;
+    eStream.appendChild(span);
+    charNodes.push(span);
+  });
+  const E_STREAM_W = E_CHARS.length * E_CHAR_W;
+  eStream.style.width = E_STREAM_W + "px";
+
+  const E_ZONES = [];
+  for (const def of E_ZONE_DEFS) {
+    const m = def.match.exec(E_TEXT);
+    if (!m) continue;
+    const start = m.index;
+    const end = start + m[0].length;
+    E_ZONES.push({ ...def, start, end });
+  }
+
+  for (const z of E_ZONES) {
+    const tick = document.createElement("span");
+    tick.className = "e-zone-tick";
+    tick.style.left = (z.start * E_CHAR_W) + "px";
+    eZones.appendChild(tick);
+  }
+
+  let lensLeft = 0;
+  let dragging = false;
+
+  function updateLens() {
+    eLens.style.left = lensLeft + "px";
+    const lensCenter = lensLeft + eLens.offsetWidth / 2;
+    const lensCenterChar = lensCenter / E_CHAR_W;
+    let active = E_ZONES[0];
+    for (const z of E_ZONES) {
+      if (lensCenterChar >= z.start && lensCenterChar <= z.end) { active = z; break; }
+      if (Math.abs(lensCenterChar - (z.start + z.end) / 2) < Math.abs(lensCenterChar - (active.start + active.end) / 2)) {
+        active = z;
+      }
+    }
+    charNodes.forEach((n, i) => {
+      n.classList.remove("in-lens", "amber", "sky", "emerald", "brand", "muted");
+      if (i >= active.start && i < active.end) {
+        n.classList.add("in-lens", active.color);
+      }
+    });
+    const wc = eWhich;
+    wc.classList.remove("amber", "sky", "emerald", "brand", "muted");
+    wc.classList.add(active.color);
+    wc.querySelector(".name").textContent = active.name;
+    eCopy.innerHTML = active.copy;
+  }
+
+  function setLensFromPointerX(clientX) {
+    const rect = eStream.getBoundingClientRect();
+    let raw = clientX - rect.left - eLens.offsetWidth / 2;
+    raw = Math.max(0, Math.min(E_STREAM_W - eLens.offsetWidth, raw));
+    lensLeft = raw;
+    eLens.classList.add("has-moved");
+    updateLens();
+  }
+  function scrollLensIntoView() {
+    const wrapRect = eWrap.getBoundingClientRect();
+    const lensRect = eLens.getBoundingClientRect();
+    const margin = 24;
+    if (lensRect.left < wrapRect.left + margin) {
+      eWrap.scrollBy({ left: lensRect.left - wrapRect.left - margin, behavior: "smooth" });
+    } else if (lensRect.right > wrapRect.right - margin) {
+      eWrap.scrollBy({ left: lensRect.right - wrapRect.right + margin, behavior: "smooth" });
+    }
+  }
+
+  setTimeout(() => {
+    const z = E_ZONES[0];
+    lensLeft = (z.start + (z.end - z.start) / 2) * E_CHAR_W - eLens.offsetWidth / 2;
+    lensLeft = Math.max(0, lensLeft);
+    updateLens();
+  }, 30);
+
+  eLens.addEventListener("pointerdown", (ev) => {
+    dragging = true;
+    eLens.setPointerCapture(ev.pointerId);
+    setLensFromPointerX(ev.clientX);
+  });
+  eLens.addEventListener("pointermove", (ev) => {
+    if (!dragging) return;
+    setLensFromPointerX(ev.clientX);
+  });
+  const stopDrag = (ev) => {
+    if (!dragging) return;
+    dragging = false;
+    try { eLens.releasePointerCapture(ev.pointerId); } catch {}
+    const lensCenter = lensLeft + eLens.offsetWidth / 2;
+    const lensCenterChar = lensCenter / E_CHAR_W;
+    let best = E_ZONES[0];
+    let bestDist = Infinity;
+    for (const z of E_ZONES) {
+      const c = (z.start + z.end) / 2;
+      const d = Math.abs(c - lensCenterChar);
+      if (d < bestDist) { bestDist = d; best = z; }
+    }
+    const snapTarget = ((best.start + best.end) / 2) * E_CHAR_W - eLens.offsetWidth / 2;
+    lensLeft = Math.max(0, Math.min(E_STREAM_W - eLens.offsetWidth, snapTarget));
+    eLens.style.transition = "left 320ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+    updateLens();
+    setTimeout(() => { eLens.style.transition = ""; }, 360);
+  };
+  eLens.addEventListener("pointerup", stopDrag);
+  eLens.addEventListener("pointercancel", stopDrag);
+
+  eWrap.addEventListener("click", (ev) => {
+    if (ev.target === eLens) return;
+    setLensFromPointerX(ev.clientX);
+    stopDrag({ pointerId: -1 });
+  });
+
+  eLens.addEventListener("keydown", (ev) => {
+    const lensCenter = lensLeft + eLens.offsetWidth / 2;
+    const lensCenterChar = lensCenter / E_CHAR_W;
+    let zi = 0;
+    let bestDist = Infinity;
+    E_ZONES.forEach((z, i) => {
+      const c = (z.start + z.end) / 2;
+      const d = Math.abs(c - lensCenterChar);
+      if (d < bestDist) { bestDist = d; zi = i; }
+    });
+    if (ev.key === "ArrowRight") zi = Math.min(E_ZONES.length - 1, zi + 1);
+    else if (ev.key === "ArrowLeft") zi = Math.max(0, zi - 1);
+    else return;
+    ev.preventDefault();
+    const z = E_ZONES[zi];
+    const target = ((z.start + z.end) / 2) * E_CHAR_W - eLens.offsetWidth / 2;
+    lensLeft = Math.max(0, Math.min(E_STREAM_W - eLens.offsetWidth, target));
+    eLens.style.transition = "left 320ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+    eLens.classList.add("has-moved");
+    updateLens();
+    scrollLensIntoView();
+    setTimeout(() => { eLens.style.transition = ""; }, 360);
+  });
+})();
+</script>
+</body>
+</html>

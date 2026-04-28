@@ -1,549 +1,715 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { useCallback, useState, type MouseEvent, type ReactNode } from "react";
 
 import prebillTrace from "@/lib/fixtures/prebill-trace-12.json";
 
-// Stylized three-stage inspector. Not a faithful Wireshark clone — the
-// packet-list row is a representative LAN shape; the hex/ASCII dump and
-// the downstream views are derived directly from the canonical fixture
-// imported above so that byte offsets stay truthful.
+// Four-stage horizontal pipeline. The HEX dump never wanted to be a
+// square — it sits at the top as a thin proportional band, one segment
+// per field, scaled by byte count. The three reading-friendly stages
+// (ASCII / fields / action) sit below as flexible columns that grow to
+// fit their content. Hover any element with [data-field] and matching
+// elements anywhere in the panel light up.
 
 const wire = prebillTrace.wire_trace;
 const REQUEST_ASCII = wire.request.ascii;
-const REQUEST_HEX = wire.request.hex;
 const REQUEST_QUEUE = wire.payloads.request_queue;
 
-// Delimiters — mirrors lib/pos/constants.ts exports (NP / EQ / EOM).
+// Delimiters — mirrors lib/pos/constants.ts (NP / EQ / EOM).
 const NP = "[NP]";
 const EQ = "[EQ]";
 const EOM = "[EOM]";
 
-type HighlightColor = "amber" | "sky" | "emerald" | "brand";
+type FieldKey =
+  | "postqueue"
+  | "version"
+  | "queue"
+  | "token"
+  | "messagetype"
+  | "messageid";
 
-type HighlightRange = {
-  color: HighlightColor;
-  label: string;
-  start: number; // inclusive byte offset
-  end: number; // exclusive byte offset
+const FIELD_KEYS: FieldKey[] = [
+  "postqueue",
+  "version",
+  "queue",
+  "token",
+  "messagetype",
+  "messageid"
+];
+
+type FieldColor = "amber" | "sky" | "emerald" | "brand" | "slate";
+
+const FIELD_COLOR: Record<FieldKey, FieldColor> = {
+  postqueue: "amber",
+  version: "slate",
+  queue: "sky",
+  token: "emerald",
+  messagetype: "slate",
+  messageid: "brand"
 };
 
-// --- Stage 1 byte-range derivation (computed once, from the ASCII ---
-// mirror of the fixture bytes, so highlights stay aligned if the
-// fixture ever changes).
+const FIELD_LABEL: Record<FieldKey, string> = {
+  postqueue: "POSTQUEUE",
+  version: "PROTOCOLVERSION",
+  queue: "QUEUE",
+  token: "TOKEN",
+  messagetype: "MESSAGETYPE",
+  messageid: "MESSAGEID"
+};
 
-function computeHighlights(ascii: string): HighlightRange[] {
-  const highlights: HighlightRange[] = [];
+// ── Field byte-range computation ───────────────────────────────────
+// Each field's range covers its key prefix + delimiter + value, up to
+// the next delimiter that closes the field. Indexes are in ASCII char
+// units, which equal byte units (one ASCII char = one byte here).
 
-  // POSTQUEUE opcode — the very first 9 bytes.
-  const opcodeIdx = ascii.indexOf("POSTQUEUE");
-  if (opcodeIdx !== -1) {
-    highlights.push({
-      color: "amber",
-      label: "POSTQUEUE opcode",
-      start: opcodeIdx,
-      end: opcodeIdx + "POSTQUEUE".length,
-    });
-  }
-
-  // QUEUE[EQ]<base64>…[NP] — up to the next [NP] after the key+sep.
-  const queueKey = "QUEUE" + EQ;
-  const queueKeyIdx = ascii.indexOf(queueKey);
-  if (queueKeyIdx !== -1) {
-    const queueNextNp = ascii.indexOf(NP, queueKeyIdx + queueKey.length);
-    highlights.push({
-      color: "sky",
-      label: "QUEUE[EQ] + Base64 payload",
-      start: queueKeyIdx,
-      end: queueNextNp === -1 ? ascii.length : queueNextNp,
-    });
-  }
-
-  // TOKEN[EQ]<uuid>…[NP] — same shape.
-  const tokenKey = "TOKEN" + EQ;
-  const tokenKeyIdx = ascii.indexOf(tokenKey);
-  if (tokenKeyIdx !== -1) {
-    const tokenNextNp = ascii.indexOf(NP, tokenKeyIdx + tokenKey.length);
-    highlights.push({
-      color: "emerald",
-      label: "TOKEN[EQ] + UUID",
-      start: tokenKeyIdx,
-      end: tokenNextNp === -1 ? ascii.length : tokenNextNp,
-    });
-  }
-
-  // Trailing [EOM] — last 5 bytes.
-  const eomIdx = ascii.lastIndexOf(EOM);
-  if (eomIdx !== -1) {
-    highlights.push({
-      color: "brand",
-      label: "[EOM] terminator",
-      start: eomIdx,
-      end: eomIdx + EOM.length,
-    });
-  }
-
-  return highlights;
+function rangeBetween(after: string, until: string) {
+  const start = REQUEST_ASCII.indexOf(after);
+  if (start < 0) return null;
+  const end = REQUEST_ASCII.indexOf(until, start + after.length);
+  return { start, end: end < 0 ? REQUEST_ASCII.length : end };
 }
 
-const HIGHLIGHTS = computeHighlights(REQUEST_ASCII);
-
-// Tailwind classes keyed by highlight color. The dot uses solid bg, the
-// inline byte overlay uses a translucent bg + foreground-preserving text.
-const COLOR_CLASS: Record<
-  HighlightColor,
-  { dot: string; chip: string; overlay: string; border: string }
+const FIELD_RANGES: Record<
+  FieldKey,
+  { start: number; end: number } | null
 > = {
-  amber: {
-    dot: "bg-amber-400",
-    chip: "bg-amber-400/10 text-amber-200 border-amber-400/40",
-    overlay: "bg-amber-400/20 text-amber-100",
-    border: "border-amber-400/40",
-  },
-  sky: {
-    dot: "bg-sky-400",
-    chip: "bg-sky-400/10 text-sky-200 border-sky-400/40",
-    overlay: "bg-sky-400/20 text-sky-100",
-    border: "border-sky-400/40",
-  },
-  emerald: {
-    dot: "bg-emerald-400",
-    chip: "bg-emerald-400/10 text-emerald-200 border-emerald-400/40",
-    overlay: "bg-emerald-400/20 text-emerald-100",
-    border: "border-emerald-400/40",
-  },
-  brand: {
-    dot: "bg-brand-500",
-    chip: "bg-brand-500/10 text-brand-200 border-brand-500/40",
-    overlay: "bg-brand-500/25 text-brand-100",
-    border: "border-brand-500/40",
-  },
+  postqueue: { start: 0, end: "POSTQUEUE".length },
+  version: rangeBetween("PROTOCOLVERSION", NP),
+  queue: rangeBetween("QUEUE" + EQ, NP),
+  token: rangeBetween("TOKEN" + EQ, NP),
+  messagetype: rangeBetween("MESSAGETYPE" + EQ, NP),
+  messageid: rangeBetween("MESSAGEID" + EQ, EOM)
 };
 
-// --- Hex/ASCII dump rendering ----------------------------------------
+function withKeyPrefix(key: FieldKey, prefix: string) {
+  const r = FIELD_RANGES[key];
+  if (!r) return;
+  const i = REQUEST_ASCII.indexOf(prefix);
+  if (i >= 0 && i < r.start) r.start = i;
+}
+withKeyPrefix("version", "PROTOCOLVERSION");
+withKeyPrefix("queue", "QUEUE" + EQ);
+withKeyPrefix("token", "TOKEN" + EQ);
+withKeyPrefix("messagetype", "MESSAGETYPE" + EQ);
+withKeyPrefix("messageid", "MESSAGEID" + EQ);
 
-type DumpCell = {
-  byteIndex: number;
-  hex: string; // 2 chars
-  ascii: string; // 1 char, printable or '.'
-};
+const TOTAL_BYTES = REQUEST_ASCII.length;
 
-type DumpRow = {
-  offset: number;
-  cells: DumpCell[];
-};
-
-function toPrintable(charCode: number): string {
-  // Same convention as classic hex dumps — anything outside 0x20..0x7e
-  // becomes '.'.
-  if (charCode >= 0x20 && charCode <= 0x7e) {
-    return String.fromCharCode(charCode);
+function fieldAtByte(idx: number): FieldKey | "separator" {
+  for (const k of FIELD_KEYS) {
+    const r = FIELD_RANGES[k];
+    if (r && idx >= r.start && idx < r.end) return k;
   }
-  return ".";
+  return "separator";
 }
 
-function buildDumpRows(hex: string, bytesPerRow = 16): DumpRow[] {
-  const rows: DumpRow[] = [];
-  const byteCount = hex.length / 2;
-  for (let offset = 0; offset < byteCount; offset += bytesPerRow) {
-    const cells: DumpCell[] = [];
-    for (let i = 0; i < bytesPerRow && offset + i < byteCount; i++) {
-      const byteIndex = offset + i;
-      const hexPair = hex.slice(byteIndex * 2, byteIndex * 2 + 2);
-      const ch = toPrintable(parseInt(hexPair, 16));
-      cells.push({ byteIndex, hex: hexPair, ascii: ch });
+// ── HEX band: contiguous segments in source order ────────────────────
+
+type Segment = {
+  field: FieldKey | "separator";
+  start: number;
+  end: number;
+};
+
+function buildSegments(): Segment[] {
+  const segs: Segment[] = [];
+  let cursor = 0;
+  for (const k of FIELD_KEYS) {
+    const r = FIELD_RANGES[k];
+    if (!r) continue;
+    if (r.start > cursor) {
+      segs.push({ field: "separator", start: cursor, end: r.start });
     }
-    rows.push({ offset, cells });
+    segs.push({ field: k, start: r.start, end: r.end });
+    cursor = r.end;
   }
-  return rows;
-}
-
-function colorForByte(index: number): HighlightColor | null {
-  for (const h of HIGHLIGHTS) {
-    if (index >= h.start && index < h.end) return h.color;
+  if (cursor < TOTAL_BYTES) {
+    segs.push({ field: "separator", start: cursor, end: TOTAL_BYTES });
   }
-  return null;
+  return segs;
 }
+const HEX_SEGMENTS = buildSegments();
 
-const DUMP_ROWS = buildDumpRows(REQUEST_HEX, 16);
-
-function formatOffset(n: number): string {
-  return n.toString(16).padStart(4, "0");
-}
-
-// --- Stage 2 ASCII tokenization --------------------------------------
+// ── ASCII tokenization ───────────────────────────────────────────────
 
 type AsciiToken =
-  | { kind: "text"; value: string }
-  | { kind: "delim"; value: typeof NP | typeof EQ | typeof EOM };
+  | { kind: "text"; value: string; at: number }
+  | { kind: "delim"; value: typeof NP | typeof EQ | typeof EOM; at: number };
 
 function tokenizeAscii(ascii: string): AsciiToken[] {
-  const delims: Array<typeof NP | typeof EQ | typeof EOM> = [NP, EQ, EOM];
-  const tokens: AsciiToken[] = [];
+  const ds: Array<typeof NP | typeof EQ | typeof EOM> = [NP, EQ, EOM];
+  const out: AsciiToken[] = [];
   let cursor = 0;
   while (cursor < ascii.length) {
-    // Find the earliest occurrence of any delimiter at or after cursor.
-    let nextDelim: typeof NP | typeof EQ | typeof EOM | null = null;
+    let nextDelim: (typeof NP | typeof EQ | typeof EOM) | null = null;
     let nextIdx = -1;
-    for (const d of delims) {
+    for (const d of ds) {
       const idx = ascii.indexOf(d, cursor);
       if (idx !== -1 && (nextIdx === -1 || idx < nextIdx)) {
         nextIdx = idx;
         nextDelim = d;
       }
     }
-    if (nextDelim === null || nextIdx === -1) {
-      tokens.push({ kind: "text", value: ascii.slice(cursor) });
+    if (nextDelim === null) {
+      out.push({ kind: "text", value: ascii.slice(cursor), at: cursor });
       break;
     }
     if (nextIdx > cursor) {
-      tokens.push({ kind: "text", value: ascii.slice(cursor, nextIdx) });
+      out.push({
+        kind: "text",
+        value: ascii.slice(cursor, nextIdx),
+        at: cursor
+      });
     }
-    tokens.push({ kind: "delim", value: nextDelim });
+    out.push({ kind: "delim", value: nextDelim, at: nextIdx });
     cursor = nextIdx + nextDelim.length;
   }
-  return tokens;
+  return out;
 }
-
 const ASCII_TOKENS = tokenizeAscii(REQUEST_ASCII);
 
-// Field names worth distinguishing inside plain text segments.
 const FIELD_NAMES = [
   "POSTQUEUE",
   "PROTOCOLVERSION",
   "QUEUE",
   "TOKEN",
   "MESSAGETYPE",
-  "MESSAGEID",
+  "MESSAGEID"
 ] as const;
 
-function renderTextSegment(value: string, keyBase: string): ReactNode[] {
-  // Split on field names while preserving them. Matches are whole words
-  // only — the regex's outer parens keep the delimiters in the split.
+// ── Field rows for stage 3 ──────────────────────────────────────────
+
+const FIELDS: Array<{
+  key: FieldKey;
+  label: string;
+  value: string;
+  color: FieldColor;
+}> = [
+  {
+    key: "postqueue",
+    label: "POSTQUEUE",
+    value: "(opcode — what to do)",
+    color: "amber"
+  },
+  {
+    key: "version",
+    label: "PROTOCOLVERSION",
+    value: "2",
+    color: "slate"
+  },
+  {
+    key: "queue",
+    label: "QUEUE",
+    value: "<base64 envelope · 256 B>",
+    color: "sky"
+  },
+  {
+    key: "token",
+    label: "TOKEN",
+    value: "7a3f9c2e-1d4b-4f6a-9b8e-2c5d8f1a0b7c",
+    color: "emerald"
+  },
+  {
+    key: "messagetype",
+    label: "MESSAGETYPE",
+    value: "XDPeople.Entities.PostActionMessage",
+    color: "slate"
+  },
+  {
+    key: "messageid",
+    label: "MESSAGEID",
+    value: "p12e4b8a-1f29-4a7c-9e6b-4fa02c813e12",
+    color: "brand"
+  }
+];
+
+// ── Visual class lookups ────────────────────────────────────────────
+
+const SEG_CLASS: Record<FieldColor | "delim", string> = {
+  amber: "bg-amber-400/15 text-amber-200",
+  sky: "bg-sky-400/15 text-sky-200",
+  emerald: "bg-emerald-400/15 text-emerald-200",
+  brand: "bg-brand-500/20 text-brand-200",
+  slate: "bg-white/[0.05] text-foreground/75",
+  delim: "bg-white/[0.025] text-muted-foreground/50"
+};
+
+const ROW_CLASS: Record<FieldColor, string> = {
+  amber: "border-l-amber-400/80",
+  sky: "border-l-sky-400/80",
+  emerald: "border-l-emerald-400/80",
+  brand: "border-l-brand-500/80",
+  slate: "border-l-white/30"
+};
+
+const ROW_KEY_CLASS: Record<FieldColor, string> = {
+  amber: "text-amber-300",
+  sky: "text-sky-300",
+  emerald: "text-emerald-300",
+  brand: "text-brand-300",
+  slate: "text-muted-foreground"
+};
+
+const TAG_CLASS: Record<"np" | "eq" | "eom", string> = {
+  np: "bg-amber-400/10 text-amber-200 border-amber-400/40",
+  eq: "bg-sky-400/10 text-sky-200 border-sky-400/40",
+  eom: "bg-brand-500/15 text-brand-200 border-brand-500/40"
+};
+
+// ── Cross-link CSS ──────────────────────────────────────────────────
+// Scoped to .packet-inspector-root so nothing leaks. The body sets
+// `linked` and `field-{key}`; CSS dims everything else and glows the
+// matching field.
+
+const CROSS_LINK_CSS = `
+.packet-inspector-root {
+  --pi-amber: 251 191 36;
+  --pi-sky: 56 189 248;
+  --pi-emerald: 52 211 153;
+  --pi-brand: 106 134 245;
+}
+.packet-inspector-root .pi-glow {
+  transition: background-color 220ms ease, border-color 220ms ease, opacity 220ms ease;
+}
+.packet-inspector-root.linked .has-field [data-field]:not([data-field="separator"]) {
+  opacity: 0.42;
+  transition: opacity 220ms ease;
+}
+.packet-inspector-root.linked.field-postqueue .has-field [data-field="postqueue"],
+.packet-inspector-root.linked.field-version .has-field [data-field="version"],
+.packet-inspector-root.linked.field-queue .has-field [data-field="queue"],
+.packet-inspector-root.linked.field-token .has-field [data-field="token"],
+.packet-inspector-root.linked.field-messagetype .has-field [data-field="messagetype"],
+.packet-inspector-root.linked.field-messageid .has-field [data-field="messageid"] {
+  opacity: 1;
+}
+.packet-inspector-root.linked.field-postqueue .has-field .pi-glow[data-field="postqueue"] {
+  background-color: rgb(var(--pi-amber) / 0.22);
+  border-color: rgb(var(--pi-amber) / 0.55);
+}
+.packet-inspector-root.linked.field-version .has-field .pi-glow[data-field="version"] {
+  background-color: rgb(255 255 255 / 0.06);
+  border-color: rgb(255 255 255 / 0.2);
+}
+.packet-inspector-root.linked.field-queue .has-field .pi-glow[data-field="queue"] {
+  background-color: rgb(var(--pi-sky) / 0.22);
+  border-color: rgb(var(--pi-sky) / 0.55);
+}
+.packet-inspector-root.linked.field-token .has-field .pi-glow[data-field="token"] {
+  background-color: rgb(var(--pi-emerald) / 0.22);
+  border-color: rgb(var(--pi-emerald) / 0.55);
+}
+.packet-inspector-root.linked.field-messagetype .has-field .pi-glow[data-field="messagetype"] {
+  background-color: rgb(255 255 255 / 0.06);
+  border-color: rgb(255 255 255 / 0.2);
+}
+.packet-inspector-root.linked.field-messageid .has-field .pi-glow[data-field="messageid"] {
+  background-color: rgb(var(--pi-brand) / 0.22);
+  border-color: rgb(var(--pi-brand) / 0.55);
+}
+`.trim();
+
+// ── Component ────────────────────────────────────────────────────────
+
+export function PacketInspector() {
+  const [activeField, setActiveField] = useState<string | null>(null);
+
+  const onMouseOver = useCallback((ev: MouseEvent<HTMLDivElement>) => {
+    const t = (ev.target as HTMLElement).closest("[data-field]");
+    if (!t) return;
+    setActiveField(t.getAttribute("data-field"));
+  }, []);
+
+  const onMouseLeave = useCallback(() => setActiveField(null), []);
+
+  const linked = activeField !== null && activeField !== "separator";
+  const fieldClass = linked ? `field-${activeField}` : "";
+
+  return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: CROSS_LINK_CSS }} />
+      <div
+        className={`packet-inspector-root glass-panel rounded-2xl p-6 sm:p-8 ${
+          linked ? "linked " + fieldClass : ""
+        }`}
+        onMouseOver={onMouseOver}
+        onMouseLeave={onMouseLeave}
+      >
+        <div className="flex flex-col gap-4">
+          <p className="eyebrow">Packet transformation</p>
+          <h3 className="text-balance text-2xl font-semibold leading-tight tracking-tight text-foreground sm:text-3xl">
+            One pre-bill, four readings.
+          </h3>
+          <p className="text-pretty text-[15px] leading-relaxed text-muted-foreground">
+            The same 482 bytes — laid out as a ruler over the wire
+            (printable form one click in), a list of fields, and the
+            action they actually were. Hover any one to light up the
+            matching slice across the others.
+          </p>
+        </div>
+
+        {/* HEX BAND — full width, proportional segments + collapsible ASCII */}
+        <Stage1HexBand />
+
+        {/* TWO STAGES — flexible, no inner scroll */}
+        <div className="mt-6 has-field grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+          <Stage3Fields />
+          <Stage4Action />
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ── Stage 1 — HEX band + collapsible ASCII ─────────────────────────
+
+function Stage1HexBand() {
+  const [showAscii, setShowAscii] = useState(false);
+
+  return (
+    <section
+      aria-label="Stage 1 — HEX bytes as a ruler"
+      className="has-field mt-8 flex flex-col gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5"
+    >
+      <header className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="flex items-center gap-3">
+          <span className="mono text-[10.5px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
+            <span className="text-foreground/40">01</span> HEX bytes ·
+            field map
+          </span>
+        </div>
+        <span className="mono text-[10.5px] tracking-wider text-muted-foreground">
+          {TOTAL_BYTES} B
+        </span>
+      </header>
+      <p className="text-[13px] leading-relaxed text-muted-foreground">
+        <span className="text-foreground">A ruler over the wire.</span>{" "}
+        Each segment is one field, width scales with bytes — at a glance
+        you can see the QUEUE payload eats most of the packet.
+      </p>
+      <div className="flex h-8 w-full overflow-hidden rounded-md border border-white/10 bg-white/[0.02]">
+        {HEX_SEGMENTS.map((seg, i) => {
+          const widthPct = ((seg.end - seg.start) / TOTAL_BYTES) * 100;
+          if (widthPct < 0.4) return null; // skip hairline separators
+          const isField = seg.field !== "separator";
+          const colorKey = isField
+            ? FIELD_COLOR[seg.field as FieldKey]
+            : "delim";
+          const labelText = isField ? FIELD_LABEL[seg.field as FieldKey] : "";
+          const bytes = seg.end - seg.start;
+          let label = "";
+          if (widthPct > 14 && labelText) label = `${labelText} · ${bytes} B`;
+          else if (widthPct > 7 && labelText) label = labelText;
+          else if (widthPct > 3 && labelText) label = labelText.slice(0, 4);
+          return (
+            <div
+              key={i}
+              data-field={seg.field}
+              className={`pi-glow flex h-full items-center justify-center overflow-hidden whitespace-nowrap border-r border-background/40 mono text-[9.5px] uppercase tracking-[0.08em] last:border-r-0 ${SEG_CLASS[colorKey]}`}
+              style={{ width: `${widthPct}%` }}
+              title={
+                isField
+                  ? `${FIELD_LABEL[seg.field as FieldKey]} · ${bytes} B`
+                  : `${bytes} B separator`
+              }
+            >
+              {label}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mono flex justify-between text-[10px] text-muted-foreground/70">
+        <span>0</span>
+        <span>120</span>
+        <span>240</span>
+        <span>360</span>
+        <span>{TOTAL_BYTES}</span>
+      </div>
+
+      {/* Disclosure: toggle the printable-form ASCII */}
+      <div className="mt-1 border-t border-white/5 pt-3">
+        <button
+          type="button"
+          onClick={() => setShowAscii(v => !v)}
+          aria-expanded={showAscii}
+          aria-controls="hex-ascii-content"
+          className="group flex items-center gap-2 text-foreground/70 transition-colors hover:text-foreground"
+        >
+          <svg
+            className={`h-3 w-3 transition-transform duration-200 ${
+              showAscii ? "rotate-90" : ""
+            }`}
+            viewBox="0 0 12 12"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            aria-hidden
+          >
+            <path
+              d="M4 2 L8 6 L4 10"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span className="mono text-[10.5px] font-medium uppercase tracking-[0.22em]">
+            <span className="text-foreground/40">02</span>{" "}
+            {showAscii ? "Hide" : "Show"} ASCII (decoded)
+          </span>
+          <span className="text-[12px] text-muted-foreground/80">
+            — same bytes, printable
+          </span>
+        </button>
+
+        <div
+          id="hex-ascii-content"
+          className={`grid overflow-hidden transition-[grid-template-rows] duration-300 ease-out ${
+            showAscii ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+          }`}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="mt-3 rounded-lg border border-white/5 bg-background/70 p-3.5">
+              <div className="mono break-all text-[12px] leading-[1.85] text-foreground/85">
+                {ASCII_TOKENS.map((token, i) => {
+                  if (token.kind === "delim") {
+                    const f = fieldAtByte(token.at);
+                    const cls =
+                      token.value === EOM
+                        ? "eom"
+                        : token.value === EQ
+                          ? "eq"
+                          : "np";
+                    return (
+                      <span
+                        key={`tok-${i}`}
+                        data-field={f === "separator" ? "separator" : f}
+                        className={`mx-[2px] inline-block rounded border px-1.5 py-[1px] align-middle text-[10px] uppercase tracking-[0.1em] leading-[1.4] ${TAG_CLASS[cls]}`}
+                      >
+                        {token.value.slice(1, -1)}
+                      </span>
+                    );
+                  }
+                  return (
+                    <span key={`tok-${i}`}>
+                      {renderTextSegment(token.value, token.at, `seg-${i}`)}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function renderTextSegment(
+  value: string,
+  startAt: number,
+  keyBase: string
+): ReactNode[] {
+  // split on field-name keywords so we can color them; the regex's
+  // outer parens keep the matches in the split output
   const pattern = new RegExp(`(${FIELD_NAMES.join("|")})`);
   const parts = value.split(pattern);
-  return parts.map((part, i) => {
-    if (FIELD_NAMES.includes(part as (typeof FIELD_NAMES)[number])) {
-      return (
-        <span key={`${keyBase}-fn-${i}`} className="text-sky-300/90">
+  const out: ReactNode[] = [];
+  let cursor = startAt;
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (part === "") continue;
+    const at = cursor;
+    const f = fieldAtByte(at);
+    const isKey = (FIELD_NAMES as readonly string[]).includes(part);
+    if (isKey) {
+      const key = part as (typeof FIELD_NAMES)[number];
+      out.push(
+        <span
+          key={`${keyBase}-fn-${i}`}
+          data-field={f}
+          className={
+            key === "POSTQUEUE"
+              ? "font-semibold text-amber-300"
+              : key === "MESSAGEID"
+                ? "text-brand-300"
+                : key === "TOKEN"
+                  ? "text-emerald-300"
+                  : "text-sky-300"
+          }
+        >
+          {part}
+        </span>
+      );
+    } else {
+      out.push(
+        <span
+          key={`${keyBase}-txt-${i}`}
+          data-field={f}
+          className={
+            f === "queue" ? "text-foreground/55" : "text-foreground/80"
+          }
+        >
           {part}
         </span>
       );
     }
-    return (
-      <span key={`${keyBase}-txt-${i}`} className="text-foreground/80">
-        {part}
-      </span>
-    );
-  });
+    cursor += part.length;
+  }
+  return out;
 }
 
-function delimColor(value: string): HighlightColor {
-  if (value === EOM) return "brand";
-  if (value === EQ) return "sky";
-  return "amber"; // NP
-}
+// ── Stage 3 — Fields (numbered 03 in DOM, follows the 02 disclosure) ─
 
-// --- Stage 3 JSON annotation -----------------------------------------
-
-type Annotation = {
-  key: string;
-  note: string;
-};
-
-const JSON_ANNOTATIONS: Annotation[] = [
-  { key: '"Action": 3', note: "PREBILL (lib/pos/constants.ts:50-54)" },
-  { key: '"table": 12', note: "same table opened in the embedded demo" },
-  { key: '"employeeId": 19', note: "demo employee" },
-  { key: '"guid"', note: "idempotency key" },
-  {
-    key: '"time": 1737394812012',
-    note: "Jan 20 2025, 17:40 UTC — epoch ms",
-  },
-];
-
-function renderAnnotatedJson(value: unknown): ReactNode {
-  const pretty = JSON.stringify(value, null, 2);
-  const lines = pretty.split("\n");
+function Stage3Fields() {
   return (
-    <div className="grid gap-y-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,18rem)] sm:gap-x-6">
-      {lines.map((line, lineIdx) => {
-        const note = JSON_ANNOTATIONS.find(a => line.includes(a.key))?.note;
-        return (
-          <div
-            key={`json-line-${lineIdx}`}
-            className="contents"
-          >
-            <pre className="mono whitespace-pre text-[12px] leading-6 text-foreground/85">
-              {line}
-            </pre>
-            <p
-              className={`mono text-[11px] leading-6 text-muted-foreground sm:pl-3 ${
-                note ? "" : "hidden sm:block"
-              }`}
-            >
-              {note ? `← ${note}` : " "}
-            </p>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// --- Component -------------------------------------------------------
-
-export function PacketInspector() {
-  return (
-    <div className="glass-panel rounded-2xl p-6 sm:p-8">
-      <div className="flex flex-col gap-4">
-        <p className="eyebrow">Packet transformation</p>
-        <h3 className="text-balance text-2xl font-semibold leading-tight tracking-tight text-foreground sm:text-3xl">
-          One pre-bill, read three ways.
-        </h3>
-        <p className="text-pretty text-[15px] leading-relaxed text-muted-foreground">
-          The same 482 bytes on the wire, the same bytes re-read as a TLV
-          message, the same bytes decoded into the action the PDV actually
-          runs. Table 12, pre-bill, captured once.
-        </p>
-      </div>
-
-      <div className="mt-8 flex flex-col gap-6">
-        <Stage1Wire />
-        <StageArrow />
-        <Stage2Message />
-        <StageArrow />
-        <Stage3Decoded />
-      </div>
-    </div>
-  );
-}
-
-function StageArrow() {
-  return (
-    <div
-      className="mono flex items-center justify-center text-[18px] leading-none text-foreground/30"
-      aria-hidden
+    <StageCard
+      num="03"
+      label="How we read it"
+      meta="6 fields"
+      title="Six labelled fields."
     >
-      <span>&darr;</span>
-    </div>
-  );
-}
-
-function StageHeading({
-  index,
-  title,
-  subtitle,
-}: {
-  index: string;
-  title: string;
-  subtitle: string;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline gap-3">
-        <span className="mono text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
-          Stage {index}
-        </span>
-        <span className="h-px flex-1 bg-border" />
-      </div>
-      <h4 className="text-lg font-semibold tracking-tight text-foreground">
-        {title}
-      </h4>
-      <p className="text-[13.5px] leading-relaxed text-muted-foreground">
-        {subtitle}
-      </p>
-    </div>
-  );
-}
-
-function Stage1Wire() {
-  return (
-    <section
-      aria-label="Stage 1 — raw packet on the wire"
-      className="flex flex-col gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5"
-    >
-      <StageHeading
-        index="1"
-        title="On the wire"
-        subtitle="The bytes as tcpdump sees them. 482 B TCP segment, representative LAN shape."
-      />
-
-      {/* Synthetic Wireshark-style packet list row */}
-      <div className="rounded-lg border border-white/5 bg-background/50 p-3">
-        <p className="mono text-[11px] leading-relaxed text-foreground/80">
-          <span className="text-muted-foreground">1 &middot; 0.031s &middot; </span>
-          <span className="text-foreground/90">10.0.0.42:52314</span>
-          <span className="text-muted-foreground"> &rarr; </span>
-          <span className="text-foreground/90">10.0.0.3:8099</span>
-          <span className="text-muted-foreground"> &middot; TCP &middot; 482 B &middot; </span>
-          <span className="text-amber-200">POSTQUEUE</span>
-          <span className="text-muted-foreground"> (pre-bill, table 12)</span>
-        </p>
-        <p className="mono mt-1 text-[10.5px] uppercase tracking-[0.18em] text-muted-foreground/70">
-          representative LAN shape
-        </p>
-      </div>
-
-      {/* Legend */}
-      <div className="flex flex-wrap gap-x-4 gap-y-2">
-        {HIGHLIGHTS.map(h => (
+      <div className="flex flex-col gap-1.5">
+        {FIELDS.map(f => (
           <div
-            key={h.label}
-            className="flex items-center gap-2 text-[12px] text-foreground/80"
+            key={f.key}
+            data-field={f.key}
+            className={`pi-glow grid grid-cols-[120px_1fr] items-center gap-3 rounded-md border border-white/10 border-l-2 ${ROW_CLASS[f.color]} bg-white/[0.025] px-2.5 py-2`}
           >
             <span
-              className={`h-2 w-2 rounded-full ${COLOR_CLASS[h.color].dot}`}
-              aria-hidden
-            />
-            <span className="mono">{h.label}</span>
+              className={`mono text-[10px] font-semibold uppercase tracking-[0.1em] ${ROW_KEY_CLASS[f.color]}`}
+            >
+              {f.label}
+            </span>
+            <span className="mono truncate text-[11px] text-foreground/80">
+              {f.value}
+            </span>
           </div>
         ))}
       </div>
-
-      {/* Hex/ASCII dump */}
-      <div className="rounded-lg border border-white/5 bg-background/70 p-3">
-        <div className="overflow-x-auto">
-          <div className="mono min-w-max text-[11px] leading-5 text-foreground/85">
-            {DUMP_ROWS.map(row => (
-              <DumpRowView key={row.offset} row={row} />
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
+    </StageCard>
   );
 }
 
-function DumpRowView({ row }: { row: DumpRow }) {
+// ── Stage 4 — Action ────────────────────────────────────────────────
+
+function Stage4Action() {
   return (
-    <div className="flex gap-4">
-      <span className="text-muted-foreground">{formatOffset(row.offset)}</span>
-      <span className="whitespace-pre">{renderHexCells(row.cells)}</span>
-      <span className="whitespace-pre">{renderAsciiCells(row.cells)}</span>
-    </div>
+    <StageCard
+      num="04"
+      label="As an action"
+      meta="intent"
+      title="Print table 12's bill."
+    >
+      <div className="flex flex-col gap-3">
+        <div className="text-[19px] font-semibold leading-tight tracking-tight text-foreground">
+          Open{" "}
+          <span data-field="queue" className="text-sky-300">
+            table&nbsp;12
+          </span>
+          &rsquo;s{" "}
+          <span
+            data-field="postqueue"
+            className="rounded bg-amber-400/20 px-1 font-bold text-amber-200"
+          >
+            pre-bill
+          </span>
+          .
+        </div>
+        <p className="text-[13px] leading-snug text-foreground/85">
+          On behalf of{" "}
+          <span data-field="queue" className="text-sky-300">
+            employee&nbsp;19
+          </span>
+          , with the box&rsquo;s{" "}
+          <span data-field="token" className="text-emerald-300">
+            session token
+          </span>
+          , keyed off both an in-payload{" "}
+          <span data-field="queue" className="text-sky-300">
+            guid
+          </span>{" "}
+          and a protocol-level{" "}
+          <span data-field="messageid" className="text-brand-300">
+            message&nbsp;id
+          </span>{" "}
+          — so a duplicate hit doesn&rsquo;t double-print.
+        </p>
+        <ul className="m-0 grid list-none grid-cols-2 gap-x-5 gap-y-1 p-0">
+          <ActionFact field="queue" k="Action" v="3 · pre-bill" />
+          <ActionFact field="queue" k="Table" v="12" />
+          <ActionFact field="queue" k="Employee" v="19" />
+          <ActionFact field="queue" k="Captured at" v="17:40 UTC" />
+          <ActionFact field="token" k="Session" v="7a3f…0b7c" />
+          <ActionFact field="messageid" k="Message id" v="p12e…3e12" />
+          <ActionFact field="version" k="Protocol" v="v2" />
+          <ActionFact field="messagetype" k="Class" v="PostActionMessage" />
+        </ul>
+      </div>
+    </StageCard>
   );
 }
 
-function renderHexCells(cells: DumpCell[]): ReactNode[] {
-  // 16-byte layout — space between every byte, double space between the
-  // 8-byte halves.
-  const nodes: ReactNode[] = [];
-  for (let i = 0; i < 16; i++) {
-    const cell = cells[i];
-    const half = i === 8 ? " " : ""; // extra space at the 8-byte boundary
-    if (!cell) {
-      nodes.push(
-        <span key={`pad-${i}`} className="text-transparent">
-          {half}
-          {"  "}
-          {i < 15 ? " " : ""}
-        </span>,
-      );
-      continue;
-    }
-    const color = colorForByte(cell.byteIndex);
-    const cls = color
-      ? `${COLOR_CLASS[color].overlay} rounded-[2px] px-[1px]`
-      : "text-foreground/70";
-    nodes.push(
-      <span key={`hex-${cell.byteIndex}-half`}>{half}</span>,
-      <span key={`hex-${cell.byteIndex}`} className={cls}>
-        {cell.hex}
-      </span>,
-      <span key={`hex-${cell.byteIndex}-sp`}>{i < 15 ? " " : ""}</span>,
-    );
-  }
-  return nodes;
+function ActionFact({
+  field,
+  k,
+  v
+}: {
+  field: FieldKey;
+  k: string;
+  v: string;
+}) {
+  return (
+    <li
+      data-field={field}
+      className="flex items-baseline justify-between gap-2 rounded-sm border-b border-dashed border-white/10 py-1 text-[11.5px]"
+    >
+      <span className="text-muted-foreground">{k}</span>
+      <span className="truncate text-right font-medium text-foreground">
+        {v}
+      </span>
+    </li>
+  );
 }
 
-function renderAsciiCells(cells: DumpCell[]): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  for (let i = 0; i < 16; i++) {
-    const cell = cells[i];
-    if (!cell) {
-      nodes.push(
-        <span key={`apad-${i}`} className="text-transparent">
-          {" "}
-        </span>,
-      );
-      continue;
-    }
-    const color = colorForByte(cell.byteIndex);
-    const cls = color
-      ? `${COLOR_CLASS[color].overlay} rounded-[2px]`
-      : "text-foreground/70";
-    nodes.push(
-      <span key={`ascii-${cell.byteIndex}`} className={cls}>
-        {cell.ascii}
-      </span>,
-    );
-  }
-  return nodes;
-}
+// ── StageCard wrapper (header + body, no inner scroll) ──────────────
 
-function Stage2Message() {
+function StageCard({
+  num,
+  label,
+  meta,
+  title,
+  children
+}: {
+  num: string;
+  label: string;
+  meta: string;
+  title: string;
+  children: ReactNode;
+}) {
   return (
     <section
-      aria-label="Stage 2 — interpreted as a TLV message"
-      className="flex flex-col gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5"
+      aria-label={`${label} — ${title}`}
+      className="flex flex-col gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5"
     >
-      <StageHeading
-        index="2"
-        title="Read as a message"
-        subtitle="Same bytes, grouped around the [NP] / [EQ] / [EOM] delimiters."
-      />
-
-      <div className="rounded-lg border border-white/5 bg-background/70 p-3">
-        <div className="mono text-[12px] leading-7 break-all text-foreground/85">
-          {ASCII_TOKENS.map((token, i) => {
-            if (token.kind === "delim") {
-              const color = delimColor(token.value);
-              return (
-                <span
-                  key={`tok-${i}`}
-                  className={`mx-[2px] inline-block rounded border px-1.5 py-[1px] text-[10.5px] uppercase tracking-[0.12em] align-middle ${COLOR_CLASS[color].chip}`}
-                >
-                  {token.value.slice(1, -1)}
-                </span>
-              );
-            }
-            return (
-              <span key={`tok-${i}`}>
-                {renderTextSegment(token.value, `seg-${i}`)}
-              </span>
-            );
-          })}
-        </div>
-      </div>
-
-      <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-        Delimiters at{" "}
-        <span className="mono text-foreground/70">
-          lib/pos/constants.ts:3-5
+      <header className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="mono text-[10.5px] font-medium uppercase tracking-[0.22em] text-muted-foreground">
+          <span className="text-foreground/40">{num}</span> {label}
         </span>
-        {" "}&middot; parser at{" "}
-        <span className="mono text-foreground/70">
-          lib/pos/wire-parser.ts:45-72
+        <span className="mono text-[10.5px] tracking-wider text-muted-foreground">
+          {meta}
         </span>
-      </p>
-    </section>
-  );
-}
-
-function Stage3Decoded() {
-  return (
-    <section
-      aria-label="Stage 3 — decoded QUEUE payload"
-      className="flex flex-col gap-4 rounded-xl border border-white/5 bg-white/[0.02] p-4 sm:p-5"
-    >
-      <StageHeading
-        index="3"
-        title="Decoded QUEUE"
-        subtitle="Base64 of the QUEUE field, parsed as JSON. This is what the PDV actually runs."
-      />
-
-      <div className="rounded-lg border border-white/5 bg-background/70 p-4">
-        {renderAnnotatedJson(REQUEST_QUEUE)}
+      </header>
+      <h4 className="text-[15px] font-semibold tracking-tight text-foreground">
+        {title}
+      </h4>
+      <div className="flex-1 rounded-lg border border-white/5 bg-background/70 p-3.5">
+        {children}
       </div>
     </section>
   );
 }
+
+// Keep an explicit reference to REQUEST_QUEUE so it stays in the
+// fixture chain even though the new layout summarises rather than
+// pretty-prints the JSON. If you want to expose it again, render it in
+// the action stage.
+void REQUEST_QUEUE;
