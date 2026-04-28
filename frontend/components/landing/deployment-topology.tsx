@@ -21,8 +21,6 @@ const ZONES: TrustZone[] = [
     control: "none",
     controlNote: "we don't control",
     nodes: [
-      { name: "PDV", meta: "Windows · vendor binary", role: "vendor" },
-      { name: "Handheld", meta: "Android · waiter app", role: "vendor" },
       { name: "Vendor cloud", meta: "auth · sync", role: "vendor" }
     ]
   },
@@ -33,7 +31,8 @@ const ZONES: TrustZone[] = [
     controlNote: "we host ourselves",
     nodes: [
       { name: "NestJS", meta: "Oracle Cloud VM", role: "ours" },
-      { name: "WhatsApp webhook", meta: "Meta Cloud API", role: "external" }
+      { name: "WhatsApp automaton", meta: "finite-state machine", role: "ours" },
+      { name: "Meta webhook", meta: "WhatsApp Cloud API", role: "external" }
     ]
   },
   {
@@ -42,6 +41,8 @@ const ZONES: TrustZone[] = [
     control: "tunnel",
     controlNote: "we reach in over a private tunnel",
     nodes: [
+      { name: "POS", meta: "Windows · vendor binary", role: "vendor" },
+      { name: "Handheld", meta: "Android · waiter app", role: "vendor" },
       { name: "FastAPI agent", meta: "Python · Raspberry Pi", role: "ours" }
     ]
   }
@@ -66,6 +67,24 @@ const CONTROL_DOT: Record<TrustZone["control"], string> = {
   tunnel: "bg-foreground/60"
 };
 
+const CONTROL_BADGE: Record<
+  TrustZone["control"],
+  { label: string; className: string }
+> = {
+  none: {
+    label: "we never touch",
+    className: "border-white/15 text-muted-foreground"
+  },
+  ours: {
+    label: "we host",
+    className: "border-foreground/40 bg-foreground/[0.08] text-foreground"
+  },
+  tunnel: {
+    label: "we reach in",
+    className: "border-foreground/25 text-foreground/85"
+  }
+};
+
 export function DeploymentTopology() {
   return (
     <div className="glass-panel relative overflow-hidden rounded-2xl p-5 sm:p-7">
@@ -87,9 +106,8 @@ export function DeploymentTopology() {
       </ol>
 
       <p className="mt-6 text-pretty text-[13.5px] leading-relaxed text-muted-foreground">
-        Our backend is split across the middle two zones &mdash; a NestJS on
-        an Oracle VM drives a Python agent we dropped on a Raspberry Pi
-        inside the shop. The vendor zone is never touched.
+        The Pi initiates the tunnel &mdash; the cloud drives the agent
+        without exposing anything to the open internet.
       </p>
     </div>
   );
@@ -103,14 +121,14 @@ type Connector = {
 
 const CONNECTORS: Connector[] = [
   {
-    label: "private tunnel",
-    detail: "outbound from the Pi · cloud drives the agent",
-    kind: "tunnel"
+    label: "isolated",
+    detail: "no direct path · reached only via the POS",
+    kind: "protocol"
   },
   {
-    label: "vendor TCP",
-    detail: "POSTQUEUE · TOKEN · [EOM] on shop LAN",
-    kind: "protocol"
+    label: "Tailscale",
+    detail: "private tunnel · outbound from the Pi",
+    kind: "tunnel"
   }
 ];
 
@@ -127,7 +145,7 @@ function ZoneRow({
         className={`rounded-xl border ${CONTROL_CLASS[zone.control]} bg-background/40 p-4 sm:p-5`}
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-6">
-          <div className="flex w-full shrink-0 flex-row items-center gap-3 sm:w-44 sm:flex-col sm:items-start sm:gap-1">
+          <div className="flex w-full shrink-0 flex-row items-center gap-3 sm:w-44 sm:flex-col sm:items-start sm:gap-2">
             <div className="flex items-center gap-2">
               <span
                 className={`h-1.5 w-1.5 rounded-full ${CONTROL_DOT[zone.control]}`}
@@ -137,12 +155,14 @@ function ZoneRow({
                 Zone {zone.index}
               </span>
             </div>
-            <div className="flex flex-col">
+            <div className="flex flex-col gap-1.5">
               <span className="text-[15px] font-semibold tracking-tight text-foreground">
                 {zone.label}
               </span>
-              <span className="text-[12px] italic text-muted-foreground">
-                {zone.controlNote}
+              <span
+                className={`mono inline-flex w-fit items-center whitespace-nowrap rounded-full border px-2 py-[2px] text-[9px] uppercase tracking-[0.18em] ${CONTROL_BADGE[zone.control].className}`}
+              >
+                {CONTROL_BADGE[zone.control].label}
               </span>
             </div>
           </div>
@@ -201,70 +221,93 @@ function Connector({ connector }: { connector: Connector }) {
 }
 
 function ConnectorGlyph({ kind }: { kind: Connector["kind"] }) {
-  // Vertical glyph that visually distinguishes a private tunnel (solid,
-  // bidirectional, lit endpoints) from a plain protocol link (dashed).
+  // Vertical glyph: a directional tunnel (origin dot at the bottom →
+  // single up-arrow) for outbound Tailscale, and an isolation barrier
+  // for zones that don't share a path.
   if (kind === "tunnel") {
     return (
       <svg
-        width="18"
+        width="22"
         height="40"
-        viewBox="0 0 18 40"
+        viewBox="0 0 22 40"
         fill="none"
         className="shrink-0"
+        aria-hidden
       >
-        <circle cx="9" cy="3" r="2.5" fill="rgb(229 229 229)" />
+        {/* origin halo + dot at the bottom (the Pi) */}
+        <circle
+          cx="11"
+          cy="35"
+          r="6"
+          stroke="rgb(229 229 229 / 0.18)"
+          strokeWidth="1"
+          fill="none"
+        />
+        <circle cx="11" cy="35" r="3" fill="rgb(229 229 229)" />
+        {/* outbound shaft going up */}
         <line
-          x1="9"
-          y1="6"
-          x2="9"
-          y2="34"
-          stroke="rgb(229 229 229 / 0.5)"
-          strokeWidth="1.25"
-        />
-        <path
-          d="M5 30 L9 34 L13 30"
+          x1="11"
+          y1="32"
+          x2="11"
+          y2="9"
           stroke="rgb(229 229 229 / 0.7)"
-          strokeWidth="1.25"
+          strokeWidth="1.5"
+        />
+        {/* arrow head pointing up (toward the cloud) */}
+        <path
+          d="M6 10 L11 4 L16 10"
+          stroke="rgb(229 229 229 / 0.95)"
+          strokeWidth="1.6"
           fill="none"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-        <path
-          d="M5 10 L9 6 L13 10"
-          stroke="rgb(229 229 229 / 0.7)"
-          strokeWidth="1.25"
-          fill="none"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <circle cx="9" cy="37" r="2.5" fill="rgb(229 229 229)" />
       </svg>
     );
   }
+  // Isolation: two short stubs flanking a hard barrier — no path crosses.
   return (
     <svg
-      width="18"
+      width="22"
       height="40"
-      viewBox="0 0 18 40"
+      viewBox="0 0 22 40"
       fill="none"
       className="shrink-0"
+      aria-hidden
     >
       <line
-        x1="9"
-        y1="3"
-        x2="9"
-        y2="37"
-        stroke="rgb(255 255 255 / 0.25)"
+        x1="11"
+        y1="2"
+        x2="11"
+        y2="14"
+        stroke="rgb(255 255 255 / 0.18)"
         strokeWidth="1.25"
-        strokeDasharray="2 4"
+        strokeDasharray="2 3"
       />
-      <path
-        d="M5 32 L9 37 L13 32"
-        stroke="rgb(255 255 255 / 0.45)"
+      <line
+        x1="11"
+        y1="26"
+        x2="11"
+        y2="38"
+        stroke="rgb(255 255 255 / 0.18)"
         strokeWidth="1.25"
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        strokeDasharray="2 3"
+      />
+      <line
+        x1="3"
+        y1="20"
+        x2="19"
+        y2="20"
+        stroke="rgb(255 255 255 / 0.45)"
+        strokeWidth="1.5"
+      />
+      <line
+        x1="3"
+        y1="20"
+        x2="19"
+        y2="20"
+        stroke="rgb(255 255 255 / 0.2)"
+        strokeWidth="3"
       />
     </svg>
   );
