@@ -14,6 +14,7 @@ const nextConfig = {
   reactStrictMode: true,
   pageExtensions: ["ts", "tsx", "js", "jsx", "md", "mdx"],
   typedRoutes: true,
+  outputFileTracingRoot: __dirname,
   turbopack: {
     root: __dirname
   }
