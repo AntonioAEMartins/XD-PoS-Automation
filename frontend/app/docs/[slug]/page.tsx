@@ -77,6 +77,8 @@ export default async function ChapterPage({ params }: PageParams) {
         components={mdxComponents}
         options={{
           parseFrontmatter: false,
+          blockJS: false,
+          blockDangerousJS: false,
           mdxOptions: {
             remarkPlugins: [remarkGfm],
             rehypePlugins: [
