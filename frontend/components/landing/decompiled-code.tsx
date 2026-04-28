@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -125,6 +126,25 @@ export function DecompiledCode() {
   const activeSnippet =
     DECOMPILE_SNIPPETS.find(s => s.id === active) ?? DECOMPILE_SNIPPETS[0];
 
+  // Measure the active TabsContent's height so the wrapper can animate
+  // between snippets instead of snapping. Radix hides inactive content
+  // via display:none, so the inner div's height always reflects only
+  // the visible snippet.
+  const measureRef = useRef<HTMLDivElement | null>(null);
+  const [contentHeight, setContentHeight] = useState<number | "auto">("auto");
+  const reduceMotion = useReducedMotion();
+
+  useEffect(() => {
+    const node = measureRef.current;
+    if (!node) return;
+    const ro = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (entry) setContentHeight(entry.contentRect.height);
+    });
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, []);
+
   return (
     <div className="glass-panel rounded-2xl p-6 sm:p-8">
       <div className="flex flex-col gap-3">
@@ -168,26 +188,38 @@ export function DecompiledCode() {
           ))}
         </TabsList>
 
-        {DECOMPILE_SNIPPETS.map(snippet => (
-          <TabsContent
-            key={snippet.id}
-            value={snippet.id}
-            className="mt-0 flex flex-col gap-3"
-          >
-            <div className="flex flex-col gap-1.5 px-1 pt-3">
-              <p className="eyebrow">{snippet.caption.eyebrow}</p>
-              <p className="text-pretty text-[13.5px] leading-relaxed text-foreground/80">
-                {snippet.caption.body}
-              </p>
-              {snippet.caption.tertiary ? (
-                <p className="text-[11.5px] italic leading-relaxed text-muted-foreground">
-                  {snippet.caption.tertiary}
-                </p>
-              ) : null}
-            </div>
-            <CodePane snippet={snippet} />
-          </TabsContent>
-        ))}
+        <motion.div
+          animate={{ height: contentHeight }}
+          transition={
+            reduceMotion
+              ? { duration: 0 }
+              : { duration: 0.28, ease: [0.32, 0.72, 0.24, 1] }
+          }
+          style={{ overflow: "hidden" }}
+        >
+          <div ref={measureRef}>
+            {DECOMPILE_SNIPPETS.map(snippet => (
+              <TabsContent
+                key={snippet.id}
+                value={snippet.id}
+                className="mt-0 flex flex-col gap-3"
+              >
+                <div className="flex flex-col gap-1.5 px-1 pt-3">
+                  <p className="eyebrow">{snippet.caption.eyebrow}</p>
+                  <p className="text-pretty text-[13.5px] leading-relaxed text-foreground/80">
+                    {snippet.caption.body}
+                  </p>
+                  {snippet.caption.tertiary ? (
+                    <p className="text-[11.5px] italic leading-relaxed text-muted-foreground">
+                      {snippet.caption.tertiary}
+                    </p>
+                  ) : null}
+                </div>
+                <CodePane snippet={snippet} />
+              </TabsContent>
+            ))}
+          </div>
+        </motion.div>
       </Tabs>
 
       <p className="mt-6 text-[11.5px] leading-relaxed text-muted-foreground">
